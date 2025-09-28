@@ -248,6 +248,8 @@ async def publish_post(context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_sticker(CHANNEL_ID, file_id, disable_notification=True)
 
         await post_info["cancel_msg"].edit_text("✅ Закинул в канал, поздно жать кнопку, лох.")
+        await asyncio.sleep(2) 
+        await post_info["cancel_msg"].delete()
 
         for t, _ in post_info["file_types"]:
             stats.add_forward(t)
