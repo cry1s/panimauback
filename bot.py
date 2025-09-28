@@ -27,23 +27,24 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROUP_ID = int(os.getenv('GROUP_ID'))
 CHANNEL_ID = os.getenv('CHANNEL_ID')
-ADMIN_IDS = [int(id.strip()) for id in os.getenv('ADMIN_IDS', '').split(',') if id.strip()]
+ADMIN_IDS = [int(id.strip())
+             for id in os.getenv('ADMIN_IDS', '').split(',') if id.strip()]
 
 # Хранилище для отслеживания отправленных сообщений
 pending_posts: Dict[str, Dict] = {}
 
 # Забавные ответы для команды healthcheck
 HEALTH_RESPONSES = [
-    "🤖 Я жив и готов к работе! Как робот-пылесос, только для сообщений.",
-    "✅ Всё отлично! Сижу, жду вложений, как кот у миски.",
-    "🚀 Работаю на полную катушку! Быстрее меня только свет... и моя бабушка на распродаже.",
-    "💪 В полном порядке! Здоровье как у быка, мозги как у компьютера, юмор как у КВНщика.",
-    "🎯 На посту! Глаз не спускаю с вложений, как орёл с добычей.",
-    "⚡ Заряжен на 100%! Готов форвардить всё, что движется (и имеет вложения).",
-    "🎪 Работаю! Жонглирую сообщениями как цирковой артист.",
-    "🔥 Горячий и готовый! Как пицца, только полезнее.",
-    "🎨 В креативном настроении! Форваржу с душой и огоньком.",
-    "🌟 Сияю и работаю! Как новогодняя гирлянда, только круглый год."
+    "🤬 Жив, блядь. А ты думал я сдох как твоя мотивация?",
+    "🛠 Работаю, сука. Лучше б ты так работал, а не я.",
+    "📡 Тут я, нахуй. В отличие от твоего мозга — не зависаю.",
+    "⚰ Ещё не сдох. Жаль, ты так повезти не можешь.",
+    "🥱 Да, я в строю. И чё, легче стало, сопля?",
+    "🔥 Горю, пашу, ебашу. А ты опять в TikTok залип?",
+    "💪 Нормально всё. А вот у тебя в жизни — хуй знает.",
+    "🚬 Курю, отдыхаю, но пашу за тебя, лентяй.",
+    "🎯 На месте. Посты гоняю, а ты хуйнёй страдаешь.",
+    "🤖 Да, я тут. Давай дальше проверяй, долбоёб."
 ]
 
 # Смайлики для разных типов файлов
@@ -58,20 +59,22 @@ FILE_EMOJIS = {
 }
 
 # Счётчик статистики
+
+
 class BotStats:
     def __init__(self):
         self.total_forwarded = 0
         self.cancelled = 0
         self.by_type = {}
         self.start_time = datetime.now()
-    
+
     def add_forward(self, file_type):
         self.total_forwarded += 1
         self.by_type[file_type] = self.by_type.get(file_type, 0) + 1
-    
+
     def add_cancel(self):
         self.cancelled += 1
-    
+
     def get_uptime(self):
         delta = datetime.now() - self.start_time
         days = delta.days
@@ -79,286 +82,237 @@ class BotStats:
         minutes = (delta.seconds % 3600) // 60
         return f"{days}д {hours}ч {minutes}м"
 
+
 stats = BotStats()
 
+
 async def get_joke():
-    """Получить случайную шутку с API (резервный вариант - встроенные шутки)"""
-    jokes_fallback = [
-        "Программист заходит в бар и заказывает 1.0 пива, потом 0 пива, потом 999999 пива, потом -1 пива, потом qwerty пива.",
-        "- Сколько программистов нужно, чтобы поменять лампочку?\n- Ни одного, это аппаратная проблема.",
-        "Есть только 10 типов людей: те, кто понимает двоичную систему, и те, кто нет.",
-        "- Почему программисты путают Хэллоуин и Рождество?\n- Потому что Oct 31 = Dec 25",
-        "Жена программиста отправила его в магазин: 'Купи батон хлеба, если будут яйца - возьми десяток'. Он купил десять батонов."
+    """Токсичный 'анекдот'"""
+    toxic_jokes = [
+        "— Сколько долбоёбов надо, чтобы отправить файл в канал?\n— Один, и то через меня.",
+        "Есть только два типа людей: те, кто умеет постить сам, и ты.",
+        "Почему у тебя нет друзей? Потому что даже бот тебе рофлы рассказывает.",
+        "Знаешь, почему твои посты хуёвые? Потому что ты их написал.",
+        "Программист зашёл в бар... но ты ж даже код скопировать не можешь, куда тебе до него.",
+        "— Что делает твой мозг, когда ты жмёшь /stats?\n— Да нихуя.",
+        "Ты хотел шутку? Посмотри в зеркало. Всё."
     ]
-    
-    try:
-        # Попытка получить шутку с API
-        async with aiohttp.ClientSession() as session:
-            # Можно использовать русскоязычное API шуток, если найдёте
-            # Пока используем fallback
-            return f"💭 {random.choice(jokes_fallback)}"
-    except:
-        return f"💭 {random.choice(jokes_fallback)}"
+
+    return f"💭 {random.choice(toxic_jokes)}"
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /start"""
+    """Команда /start и /help"""
     welcome_text = """
-🤖 *Привет! Я бот-форвардер с характером!*
+🥱 Ну здарова, кожаный.
 
-Моя основная работа - пересылать вложения из группы в канал.
-Но я также умею:
+Я бот, который гоняет твои вложения в канал, если ты сам с этим справиться не можешь.
 
-📌 *Основные функции:*
-• Автоматически пересылаю все вложения в канал
-• Даю 5 секунд на отмену публикации
-• Веду статистику работы
+📌 Чё я умею:
+• Автоматом кидаю твои фоточки/видосики в канал
+• Даю 5 секунд, чтоб ты очканул и отменил
+• Считаю статистику твоей тупости
 
-🎮 *Команды:*
-• /health - проверить моё самочувствие
-• /stats - посмотреть статистику
-• /joke - рассказать анекдот
-• /help - показать эту справку
+🎮 Команды:
+• /health — проверить, не сдох ли я
+• /stats — статистика твоих соплей
+• /joke — анекдотец для нищих
+• /help — если мозг выключился и забыл команды
 
-_Создан с любовью и щепоткой юмора_ ❤️
+👊 Всё, понял? А теперь не заёбывай лишними вопросами.
     """
     await update.message.reply_text(welcome_text, parse_mode=ParseMode.MARKDOWN)
 
+
 async def health_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда проверки здоровья бота"""
-    response = random.choice(HEALTH_RESPONSES)
     uptime = stats.get_uptime()
-    
-    # Добавляем случайную шутку иногда
-    if random.random() < 0.3:  # 30% шанс
+    response = f"🤬 Ну чё, живой я. Работаю уже {uptime}, а ты всё никак не научишься сам постить."
+
+    if random.random() < 0.3:
         joke = await get_joke()
-        response += f"\n\n{joke}"
-    
-    response += f"\n\n⏱ Работаю уже: {uptime}"
-    response += f"\n📊 Переслано файлов: {stats.total_forwarded}"
-    
+        response += f"\n\nИ чтоб не скучал, держи прикол:\n{joke}"
+
+    response += f"\n\n📤 Закинул файлов: {stats.total_forwarded}\n❌ Слил постов: {stats.cancelled}"
     await update.message.reply_text(response)
+
 
 async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показать статистику работы бота"""
     if not stats.total_forwarded:
-        await update.message.reply_text("📊 Пока что статистика пуста. Жду первые вложения!")
+        await update.message.reply_text("📊 Пусто. Даже ты ещё ничё не скинул, позорище.")
         return
-    
-    text = f"""📊 *Статистика работы:*
-    
-⏱ Время работы: {stats.get_uptime()}
-📤 Всего переслано: {stats.total_forwarded}
-❌ Отменено: {stats.cancelled}
-✅ Успешно опубликовано: {stats.total_forwarded - stats.cancelled}
 
-📁 *По типам файлов:*"""
-    
+    text = f"""📊 *Твоя позорная статистика:*
+
+⏱ Время работы: {stats.get_uptime()}
+📤 Всего кинуто: {stats.total_forwarded}
+❌ Отменил как ссыкун: {stats.cancelled}
+✅ Дошло до канала: {stats.total_forwarded - stats.cancelled}
+
+📁 По типам говна:"""
+
     for file_type, count in stats.by_type.items():
         emoji = FILE_EMOJIS.get(file_type, '📎')
         text += f"\n{emoji} {file_type}: {count}"
-    
+
     if stats.cancelled > 0:
         cancel_rate = (stats.cancelled / stats.total_forwarded) * 100
-        text += f"\n\n🎯 Процент отмен: {cancel_rate:.1f}%"
-    
+        text += f"\n\n🎯 Процент очканов: {cancel_rate:.1f}%"
+
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
 
 async def tell_joke(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Рассказать анекдот"""
     joke = await get_joke()
-    await update.message.reply_text(joke)
+    await update.message.reply_text(f"🗿 Слушай, ржи если не лень:\n{joke}")
+
 
 async def handle_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка сообщений с вложениями из группы"""
-    
-    # Проверяем, что сообщение из нужной группы
-    if update.message.chat_id != GROUP_ID:
-        print(update.message.chat_id, GROUP_ID)
-        return
-    
-    message = update.message
-    file_type = None
-    file_id = None
-    caption = message.caption or ""
-    
-    # Определяем тип вложения
-    if message.photo:
-        file_type = 'photo'
-        file_id = message.photo[-1].file_id  # Берём самое большое качество
-    elif message.video:
-        file_type = 'video'
-        file_id = message.video.file_id
-    elif message.audio:
-        file_type = 'audio'
-        file_id = message.audio.file_id
-    elif message.voice:
-        file_type = 'voice'
-        file_id = message.voice.file_id
-    elif message.document:
-        file_type = 'document'
-        file_id = message.document.file_id
-    elif message.animation:
-        file_type = 'animation'
-        file_id = message.animation.file_id
-    elif message.sticker:
-        file_type = 'sticker'
-        file_id = message.sticker.file_id
-    
-    if not file_type:
-        return
-    
-    try:
-        # Пересылаем в канал
-        if file_type == 'photo':
-            channel_msg = await context.bot.send_photo(
-                CHANNEL_ID, 
-                file_id, 
-            )
-        elif file_type == 'video':
-            channel_msg = await context.bot.send_video(
-                CHANNEL_ID, 
-                file_id, 
-            )
-        elif file_type == 'audio':
-            channel_msg = await context.bot.send_audio(
-                CHANNEL_ID, 
-                file_id, 
-            )
-        elif file_type == 'voice':
-            channel_msg = await context.bot.send_voice(
-                CHANNEL_ID, 
-                file_id, 
-            )
-        elif file_type == 'document':
-            channel_msg = await context.bot.send_document(
-                CHANNEL_ID, 
-                file_id, 
-            )
-        elif file_type == 'animation':
-            channel_msg = await context.bot.send_animation(
-                CHANNEL_ID, 
-                file_id, 
-            )
-        elif file_type == 'sticker':
-            channel_msg = await context.bot.send_sticker(CHANNEL_ID, file_id)
-            # Для стикеров отправляем подпись отдельным сообщением
-        
-        # Создаём кнопку отмены
-        keyboard = [[InlineKeyboardButton("❌ Не публиковать", callback_data=f"cancel_{channel_msg.message_id}")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # Отправляем сообщение с кнопкой отмены
-        cancel_msg = await message.reply_text(
-            f"✅ Опубликовано в канале!\nЕсть 5 секунд чтобы отменить.",
-            reply_markup=reply_markup
-        )
-        
-        # Сохраняем информацию для возможной отмены
-        pending_posts[str(channel_msg.message_id)] = {
-            'channel_msg_id': channel_msg.message_id,
-            'cancel_msg': cancel_msg,
-            'file_type': file_type,
-            'timestamp': datetime.now()
-        }
-        
-        # Добавляем в статистику
-        stats.add_forward(file_type)
-        
-        # Планируем удаление кнопки через 5 секунд
-        context.job_queue.run_once(
-            delete_cancel_button,
-            5,
-            data={'post_id': str(channel_msg.message_id), 'chat_id': message.chat_id}
-        )
-        
-    except Exception as e:
-        logger.error(f"Ошибка при пересылке: {e}")
-        await message.reply_text(f"❌ Ошибка при публикации: {str(e)}")
+    """Обработка всех вложений из группы"""
 
-async def delete_cancel_button(context: ContextTypes.DEFAULT_TYPE):
-    """Удаление кнопки отмены после таймаута"""
-    post_id = context.job.data['post_id']
-    
-    if post_id in pending_posts:
-        post_info = pending_posts[post_id]
-        try:
-            # Редактируем сообщение, убирая кнопку
-            await post_info['cancel_msg'].edit_text(
-                "✅ Опубликовано в канале!",
-                reply_markup=None
-            )
-            # Удаляем сообщение через 2 секунды
-            await asyncio.sleep(2)
-            await post_info['cancel_msg'].delete()
-        except:
-            pass
-        finally:
-            del pending_posts[post_id]
+    if update.message.chat_id != GROUP_ID:
+        return
+
+    message = update.message
+    file_types = []
+
+    if message.photo:
+        file_types.append(("photo", message.photo[-1].file_id))
+    if message.video:
+        file_types.append(("video", message.video.file_id))
+    if message.audio:
+        file_types.append(("audio", message.audio.file_id))
+    if message.voice:
+        file_types.append(("voice", message.voice.file_id))
+    if message.document:
+        file_types.append(("document", message.document.file_id))
+    if message.animation:
+        file_types.append(("animation", message.animation.file_id))
+    if message.sticker:
+        file_types.append(("sticker", message.sticker.file_id))
+
+    if not file_types:
+        return
+
+    # Кнопка отмены
+    keyboard = [[InlineKeyboardButton(
+        "❌ Нахуй не надо", callback_data=f"cancel_{message.message_id}")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    cancel_msg = await message.reply_text(
+        f"🛑 Ща зафорваржу в канал твои приколы. У тебя есть 5 секунд, чтоб очкануть.",
+        reply_markup=reply_markup
+    )
+
+    pending_posts[str(message.message_id)] = {
+        "source_msg": message,
+        "cancel_msg": cancel_msg,
+        "file_types": file_types,
+        "timestamp": datetime.now()
+    }
+
+    context.job_queue.run_once(
+        publish_post,
+        5,
+        data={"post_id": str(message.message_id)}
+    )
+
+
+async def publish_post(context: ContextTypes.DEFAULT_TYPE):
+    """Публикация после таймаута"""
+    post_id = context.job.data["post_id"]
+
+    if post_id not in pending_posts:
+        return
+
+    post_info = pending_posts[post_id]
+
+    try:
+        # Шлём в канал все файлы
+        for file_type, file_id in post_info["file_types"]:
+            if file_type == "photo":
+                await context.bot.send_photo(CHANNEL_ID, file_id, disable_notification=True)
+            elif file_type == "video":
+                await context.bot.send_video(CHANNEL_ID, file_id, disable_notification=True)
+            elif file_type == "audio":
+                await context.bot.send_audio(CHANNEL_ID, file_id, disable_notification=True)
+            elif file_type == "voice":
+                await context.bot.send_voice(CHANNEL_ID, file_id, disable_notification=True)
+            elif file_type == "document":
+                await context.bot.send_document(CHANNEL_ID, file_id, disable_notification=True)
+            elif file_type == "animation":
+                await context.bot.send_animation(CHANNEL_ID, file_id, disable_notification=True)
+            elif file_type == "sticker":
+                await context.bot.send_sticker(CHANNEL_ID, file_id, disable_notification=True)
+
+        await post_info["cancel_msg"].edit_text("✅ Закинул в канал, поздно жать кнопку, лох.")
+
+        for t, _ in post_info["file_types"]:
+            stats.add_forward(t)
+
+    except Exception as e:
+        logger.error(f"Ошибка при публикации: {e}")
+        await post_info["source_msg"].reply_text(f"❌ Опять хрень вышла: {e}")
+
+    finally:
+        del pending_posts[post_id]
+
 
 async def handle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка нажатия кнопки отмены"""
+    """Отмена публикации"""
     query = update.callback_query
     await query.answer()
-    
-    # Получаем ID сообщения в канале из callback_data
+
     data = query.data
     if not data.startswith("cancel_"):
         return
-    
-    channel_msg_id = data.replace("cancel_", "")
-    
-    if channel_msg_id in pending_posts:
-        post_info = pending_posts[channel_msg_id]
-        
-        try:
-            # Удаляем сообщение из канала
-            await context.bot.delete_message(CHANNEL_ID, post_info['channel_msg_id'])
-            
-            # Обновляем сообщение в группе
-            await query.message.edit_text(
-                "❌ Публикация отменена!",
-                reply_markup=None
-            )
-            
-            # Добавляем в статистику отмену
-            stats.add_cancel()
-            
-            # Удаляем из pending
-            del pending_posts[channel_msg_id]
-            
-            # Удаляем сообщение через 3 секунды
-            await asyncio.sleep(3)
-            await query.message.delete()
-            
-        except Exception as e:
-            logger.error(f"Ошибка при отмене: {e}")
-            await query.message.edit_text(
-                "❌ Не удалось отменить публикацию.",
-                reply_markup=None
-            )
+
+    source_msg_id = data.replace("cancel_", "")
+
+    if source_msg_id in pending_posts:
+        post_info = pending_posts[source_msg_id]
+        await query.message.edit_text("❌ Ссыкун отменил пост. Ладно, не буду кидать.")
+        stats.add_cancel()
+        del pending_posts[source_msg_id]
+
 
 async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда для админов - отправка сообщения в канал"""
+    """Команда для админов — вброс в канал"""
     if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("🚫 У вас нет прав для этой команды.")
+        await update.message.reply_text("🚫 Ты кто такой, сука? У тебя нет прав.")
         return
-    
+
     if not context.args:
-        await update.message.reply_text("📝 Использование: /broadcast <сообщение>")
+        await update.message.reply_text("📝 Ну и чё кидать-то? Пиши так: /broadcast <текст>")
         return
-    
+
     message = ' '.join(context.args)
     try:
-        await context.bot.send_message(CHANNEL_ID, message, parse_mode=ParseMode.MARKDOWN)
-        await update.message.reply_text("✅ Сообщение отправлено в канал!")
+        await context.bot.send_message(CHANNEL_ID, message, parse_mode=ParseMode.MARKDOWN, disable_notification=True)
+        await update.message.reply_text("✅ Закинул твою мудрость в канал. Теперь все поржали.")
     except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {e}")
+        await update.message.reply_text(f"❌ Опять ты сломал, клоун: {e}")
+
+# --- Глобальная ошибка ---
+
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Глобальный обработчик ошибок"""
+    logger.error(msg="Ошибка у бота:", exc_info=context.error)
+
+    if isinstance(update, Update) and update.effective_message:
+        await update.effective_message.reply_text(
+            "💥 Опять всё через жопу. Я упал, но ты держись."
+        )
+
 
 def main():
     """Главная функция запуска бота"""
     # Создаём приложение
     application = Application.builder().token(BOT_TOKEN).build()
-    
+
     # Регистрируем обработчики команд
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", start))
@@ -366,27 +320,30 @@ def main():
     application.add_handler(CommandHandler("stats", show_stats))
     application.add_handler(CommandHandler("joke", tell_joke))
     application.add_handler(CommandHandler("broadcast", admin_broadcast))
-    
+    application.add_error_handler(error_handler)
+
     # Обработчик вложений (фото, видео, документы и т.д.)
     application.add_handler(MessageHandler(
         filters.ChatType.GROUPS & (
-            filters.PHOTO | 
-            filters.VIDEO | 
-            filters.AUDIO | 
-            filters.Document.ALL | 
-            filters.VOICE | 
+            filters.PHOTO |
+            filters.VIDEO |
+            filters.AUDIO |
+            filters.Document.ALL |
+            filters.VOICE |
             filters.ANIMATION |
             filters.Sticker.ALL
         ),
         handle_attachment
     ))
-    
+
     # Обработчик callback кнопок
-    application.add_handler(CallbackQueryHandler(handle_cancel, pattern="^cancel_"))
-    
+    application.add_handler(CallbackQueryHandler(
+        handle_cancel, pattern="^cancel_"))
+
     # Запускаем бота
     logger.info("🚀 Бот запущен!")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
+
 
 if __name__ == '__main__':
     main()
