@@ -1,10 +1,9 @@
 import os
 import asyncio
 import random
-import aiohttp
 from datetime import datetime, timedelta
 from typing import Dict, Optional
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from telegram import ReactionTypeEmoji, Update, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -15,6 +14,7 @@ from telegram.ext import (
 )
 from telegram.constants import ParseMode
 import logging
+import yt_dlp
 
 # Настройка логирования
 logging.basicConfig(
@@ -55,7 +55,8 @@ FILE_EMOJIS = {
     'voice': '🎤',
     'document': '📄',
     'animation': '🎬',
-    'sticker': '🎨'
+    'sticker': '🎨',
+    'youtube': '▶️',
 }
 
 # Счётчик статистики
@@ -274,10 +275,11 @@ async def handle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     source_msg_id = data.replace("cancel_", "")
 
     if source_msg_id in pending_posts:
-        post_info = pending_posts[source_msg_id]
         await query.message.edit_text("❌ Ссыкун отменил пост. Ладно, не буду кидать.")
         stats.add_cancel()
         del pending_posts[source_msg_id]
+        await asyncio.sleep(3)
+        await query.message.delete()
 
 
 async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -296,6 +298,91 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ Закинул твою мудрость в канал. Теперь все поржали.")
     except Exception as e:
         await update.message.reply_text(f"❌ Опять ты сломал, клоун: {e}")
+
+async def handle_youtube_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ловим ссылки на шортсы и скачиваем их"""
+    message = update.message
+    text = message.text.strip()
+
+    if not any(x in text for x in ["youtube.com/shorts/", "youtu.be/"]):
+        return
+
+    keyboard = [[InlineKeyboardButton("❌ Нахуй не качай", callback_data=f"cancel_{message.message_id}")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    cancel_msg = await message.reply_text("📥 Ща попробую высрать твоё видео с ютуба. 5 секунд на то, чтоб передумать.", reply_markup=reply_markup)
+
+    pending_posts[str(message.message_id)] = {
+        "source_msg": message,
+        "cancel_msg": cancel_msg,
+        "yt_url": text,
+        "timestamp": datetime.now()
+    }
+
+    context.job_queue.run_once(
+        publish_youtube_video,
+        5,
+        data={"post_id": str(message.message_id)}
+    )
+
+async def publish_youtube_video(context: ContextTypes.DEFAULT_TYPE):
+    """Качаем и постим видео из Shorts"""
+    post_id = context.job.data["post_id"]
+
+    if post_id not in pending_posts:
+        return
+
+    post_info = pending_posts[post_id]
+    url = post_info["yt_url"]
+    temp_file = f"/tmp/yt_{post_id}.mp4"
+
+    try:
+        ydl_opts = {
+            "format": "mp4[height<=720]",
+            "outtmpl": temp_file,
+            "quiet": True,
+            "noplaylist": True,
+        }
+
+        await post_info["cancel_msg"].edit_text("⏳ Качаю твоё шедевральное видео, не ссы.")
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(ydl_opts).download([url]))
+
+
+        # Отправляем в канал
+        channel_msg = await context.bot.send_video(
+            CHANNEL_ID,
+            video=open(temp_file, "rb"),
+        )
+
+        await post_info["cancel_msg"].edit_text("✅ Закинул шортс. Надеюсь, не позор полный.")
+        sent_msg = await post_info["source_msg"].reply_video(
+            video=open(temp_file, "rb"),
+            caption=f"✅ Насрал:\n{url}\n\n{channel_msg.link if channel_msg else ''}",
+            disable_notification=True,
+        )
+        await asyncio.sleep(3)
+        emoji_choices = ["🔥", "😎", "👍", "👎", "🤡"]
+        chosen_emoji = random.choice(emoji_choices)
+
+        await context.bot.set_message_reaction(
+            chat_id=sent_msg.chat_id,
+            message_id=sent_msg.message_id,
+            reaction=[ReactionTypeEmoji(chosen_emoji)]
+        )
+
+        await post_info["cancel_msg"].delete()
+        
+                
+        stats.add_forward("youtube")
+
+    except Exception as e:
+        logger.error(f"Ошибка при скачивании шортса: {e}")
+        await post_info["source_msg"].reply_text(f"❌ Не смог cкачать видео, пробуй сам. ({e})")
+
+    finally:
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        del pending_posts[post_id]
 
 # --- Глобальная ошибка ---
 
@@ -322,6 +409,10 @@ def main():
     application.add_handler(CommandHandler("stats", show_stats))
     application.add_handler(CommandHandler("joke", tell_joke))
     application.add_handler(CommandHandler("broadcast", admin_broadcast))
+    application.add_handler(MessageHandler(
+        filters.ChatType.GROUPS & filters.TEXT & filters.Regex(r"(youtube\.com/shorts/|youtu\.be/)"),
+        handle_youtube_link
+    ))
     application.add_error_handler(error_handler)
 
     # Обработчик вложений (фото, видео, документы и т.д.)
@@ -332,8 +423,7 @@ def main():
             filters.AUDIO |
             filters.Document.ALL |
             filters.VOICE |
-            filters.ANIMATION |
-            filters.Sticker.ALL
+            filters.ANIMATION
         ),
         handle_attachment
     ))
