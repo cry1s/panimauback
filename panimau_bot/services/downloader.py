@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import tempfile
 from pathlib import Path
 from uuid import uuid4
@@ -74,17 +75,34 @@ def extract_download_request(text: str) -> DownloadRequest | None:
 
 
 class SocialVideoDownloader:
-    def __init__(self, cookiefile: str | None = None) -> None:
+    def __init__(self, cookiefile: str | None = None, ffmpeg_available: bool | None = None) -> None:
         self.cookiefile = cookiefile
+        self.ffmpeg_available = (
+            ffmpeg_available
+            if ffmpeg_available is not None
+            else shutil.which("ffmpeg") is not None
+        )
 
     def _build_options(self, output_template: str) -> dict[str, object]:
+        format_selector = (
+            "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/b[height<=720]/b"
+            if self.ffmpeg_available
+            else (
+                "b[height<=720][vcodec!=none][acodec!=none][ext=mp4]/"
+                "b[vcodec!=none][acodec!=none][ext=mp4]/"
+                "b[height<=720][vcodec!=none][acodec!=none]/"
+                "b[vcodec!=none][acodec!=none]"
+            )
+        )
         options: dict[str, object] = {
-            "format": "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/b[height<=720]/b",
+            "format": format_selector,
             "outtmpl": output_template,
             "quiet": True,
             "noplaylist": True,
-            "merge_output_format": "mp4",
         }
+
+        if self.ffmpeg_available:
+            options["merge_output_format"] = "mp4"
 
         if self.cookiefile:
             options["cookiefile"] = self.cookiefile

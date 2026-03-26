@@ -61,6 +61,22 @@ class ConfigTests(unittest.TestCase):
             "/tmp/cookies.txt",
         )
 
+    def test_prefers_single_file_format_without_ffmpeg(self) -> None:
+        downloader = SocialVideoDownloader(ffmpeg_available=False)
+
+        options = downloader._build_options("/tmp/test.%(ext)s")
+
+        self.assertNotIn("+", options["format"])
+        self.assertNotIn("merge_output_format", options)
+
+    def test_enables_merge_when_ffmpeg_available(self) -> None:
+        downloader = SocialVideoDownloader(ffmpeg_available=True)
+
+        options = downloader._build_options("/tmp/test.%(ext)s")
+
+        self.assertIn("+", options["format"])
+        self.assertEqual(options["merge_output_format"], "mp4")
+
 
 if __name__ == "__main__":
     unittest.main()
