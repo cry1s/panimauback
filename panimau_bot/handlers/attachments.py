@@ -80,6 +80,7 @@ async def handle_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     cancel_msg = await message.reply_text(
         voice.render_attachment_queue(services.settings.download_delay_seconds),
         reply_markup=_build_cancel_markup(message.message_id),
+        disable_notification=True,
     )
 
     services.pending_store.set(
@@ -114,7 +115,6 @@ async def publish_post(context: ContextTypes.DEFAULT_TYPE) -> None:
             await sender(
                 services.settings.channel_id,
                 file_id,
-                disable_notification=True,
             )
 
         await post_info.cancel_msg.edit_text(voice.render_attachment_success())
@@ -125,6 +125,9 @@ async def publish_post(context: ContextTypes.DEFAULT_TYPE) -> None:
             services.stats.add_forward(file_type)
     except Exception as exc:
         logger.error("Ошибка при публикации вложения", exc_info=exc)
-        await post_info.source_msg.reply_text(voice.render_attachment_publish_error(exc))
+        await post_info.source_msg.reply_text(
+            voice.render_attachment_publish_error(exc),
+            disable_notification=True,
+        )
     finally:
         services.pending_store.pop(post_id, None)

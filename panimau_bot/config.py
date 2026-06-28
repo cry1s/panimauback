@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 
 def _required_env(name: str) -> str:
@@ -24,7 +25,11 @@ class Settings:
     channel_id: str
     admin_ids: tuple[int, ...]
     download_delay_seconds: int = 5
-    ytdlp_cookies_file: str | None = None
+    state_dir: Path = Path("data")
+
+    @property
+    def instagram_cookies_file(self) -> Path:
+        return self.state_dir / "instagram.cookies.txt"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -34,5 +39,5 @@ class Settings:
             channel_id=_required_env("CHANNEL_ID"),
             admin_ids=_parse_admin_ids(os.getenv("ADMIN_IDS", "")),
             download_delay_seconds=int(os.getenv("DOWNLOAD_DELAY_SECONDS", "5")),
-            ytdlp_cookies_file=os.getenv("YTDLP_COOKIES_FILE") or None,
+            state_dir=Path(os.getenv("BOT_STATE_DIR", "data")),
         )

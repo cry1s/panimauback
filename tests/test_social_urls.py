@@ -24,6 +24,7 @@ class SocialUrlTests(unittest.TestCase):
             "youtube.com/shorts/abc123": "youtube",
             "https://youtu.be/dQw4w9WgXcQ": "youtube",
             "https://www.instagram.com/user/reel/CWqAgUZgCku/": "instagram",
+            "https://www.instagram.com/reel/DZ-ec0ixTgg/?igsh=MXNvaWdoYXU1dzduNQ==": "instagram",
             "https://vm.tiktok.com/ZTR45GpSF/": "tiktok",
             "https://vt.tiktok.com/ZSe4FqkKd": "tiktok",
             "https://www.tiktok.com/@leenabhushan/video/6748451240264420610": "tiktok",
@@ -43,6 +44,19 @@ class SocialUrlTests(unittest.TestCase):
         self.assertIsNotNone(request)
         assert request is not None
         self.assertEqual(request.url, "https://www.instagram.com/reel/Cop84x6u7CP/")
+
+    def test_extracts_canary_reel_with_query_string(self) -> None:
+        request = extract_download_request(
+            "проверь https://www.instagram.com/reel/DZ-ec0ixTgg/?igsh=MXNvaWdoYXU1dzduNQ=="
+        )
+
+        self.assertIsNotNone(request)
+        assert request is not None
+        self.assertEqual(request.platform, "instagram")
+        self.assertEqual(
+            request.url,
+            "https://www.instagram.com/reel/DZ-ec0ixTgg/?igsh=MXNvaWdoYXU1dzduNQ==",
+        )
 
 
 if __name__ == "__main__":

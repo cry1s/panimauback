@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 import shutil
 import tempfile
@@ -11,6 +12,15 @@ import yt_dlp
 from panimau_bot.models import DownloadRequest, DownloadResult
 
 TRAILING_URL_PUNCTUATION = ".,!?;:)]}"
+INSTAGRAM_AUTH_ERROR_MARKERS = (
+    "empty media response",
+    "login",
+    "logged-in",
+    "log in",
+    "cookies",
+    "authentication",
+    "private",
+)
 
 SUPPORTED_URL_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -74,16 +84,31 @@ def extract_download_request(text: str) -> DownloadRequest | None:
     return earliest_match[1]
 
 
+@dataclass(slots=True, frozen=True)
+class DownloaderCredentials:
+    username: str
+    password: str
+    twofactor: str | None = None
+
+
+class InstagramAuthRequiredError(RuntimeError):
+    """Raised when Instagram refuses unauthenticated or stale-cookie requests."""
+
+
 class SocialVideoDownloader:
-    def __init__(self, cookiefile: str | None = None, ffmpeg_available: bool | None = None) -> None:
-        self.cookiefile = cookiefile
+    def __init__(self, cookiefile: str | Path | None = None, ffmpeg_available: bool | None = None) -> None:
+        self.cookiefile = str(cookiefile) if cookiefile is not None else None
         self.ffmpeg_available = (
             ffmpeg_available
             if ffmpeg_available is not None
             else shutil.which("ffmpeg") is not None
         )
 
-    def _build_options(self, output_template: str) -> dict[str, object]:
+    def _build_options(
+        self,
+        output_template: str | None = None,
+        credentials: DownloaderCredentials | None = None,
+    ) -> dict[str, object]:
         format_selector = (
             "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/b[height<=720]/b"
             if self.ffmpeg_available
@@ -96,10 +121,12 @@ class SocialVideoDownloader:
         )
         options: dict[str, object] = {
             "format": format_selector,
-            "outtmpl": output_template,
             "quiet": True,
             "noplaylist": True,
         }
+
+        if output_template is not None:
+            options["outtmpl"] = output_template
 
         if self.ffmpeg_available:
             options["merge_output_format"] = "mp4"
@@ -107,7 +134,39 @@ class SocialVideoDownloader:
         if self.cookiefile:
             options["cookiefile"] = self.cookiefile
 
+        if credentials is not None:
+            options["username"] = credentials.username
+            options["password"] = credentials.password
+            if credentials.twofactor:
+                options["twofactor"] = credentials.twofactor
+
         return options
+
+    def _raise_for_auth_error(self, request: DownloadRequest, exc: Exception) -> None:
+        if request.platform != "instagram":
+            raise exc
+
+        error_text = str(exc).lower()
+        if any(marker in error_text for marker in INSTAGRAM_AUTH_ERROR_MARKERS):
+            raise InstagramAuthRequiredError("Instagram needs /ig_login") from exc
+
+        raise exc
+
+    def probe(
+        self,
+        request: DownloadRequest,
+        credentials: DownloaderCredentials | None = None,
+    ) -> dict[str, object]:
+        try:
+            with yt_dlp.YoutubeDL(self._build_options(credentials=credentials)) as downloader:
+                info = downloader.extract_info(request.url, download=False)
+        except Exception as exc:
+            self._raise_for_auth_error(request, exc)
+
+        if not isinstance(info, dict):
+            return {}
+
+        return info
 
     def _resolve_downloaded_file(self, output_prefix: Path, prepared_path: Path) -> Path:
         candidates = [
@@ -131,9 +190,12 @@ class SocialVideoDownloader:
         output_prefix = Path(tempfile.gettempdir()) / f"panimau_{request.platform}_{uuid4().hex}"
         output_template = f"{output_prefix}.%(ext)s"
 
-        with yt_dlp.YoutubeDL(self._build_options(output_template)) as downloader:
-            info = downloader.extract_info(request.url, download=True)
-            prepared_path = Path(downloader.prepare_filename(info))
+        try:
+            with yt_dlp.YoutubeDL(self._build_options(output_template)) as downloader:
+                info = downloader.extract_info(request.url, download=True)
+                prepared_path = Path(downloader.prepare_filename(info))
+        except Exception as exc:
+            self._raise_for_auth_error(request, exc)
 
         return DownloadResult(
             file_path=self._resolve_downloaded_file(output_prefix, prepared_path).resolve(),

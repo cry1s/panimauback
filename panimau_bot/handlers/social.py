@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes
 
 from panimau_bot.constants import REACTION_CHOICES, SOCIAL_PLATFORM_LABELS
 from panimau_bot.models import AppServices, PendingDownloadPost
-from panimau_bot.services.downloader import extract_download_request
+from panimau_bot.services.downloader import InstagramAuthRequiredError, extract_download_request
 from panimau_bot import voice
 
 logger = logging.getLogger(__name__)
@@ -48,6 +48,7 @@ async def handle_social_link(update: Update, context: ContextTypes.DEFAULT_TYPE)
     cancel_msg = await message.reply_text(
         voice.render_social_queue(label, services.settings.download_delay_seconds),
         reply_markup=_build_cancel_markup(message.message_id),
+        disable_notification=True,
     )
 
     services.pending_store.set(
@@ -90,7 +91,6 @@ async def publish_social_video(context: ContextTypes.DEFAULT_TYPE) -> None:
             channel_msg = await context.bot.send_video(
                 services.settings.channel_id,
                 video=video_file,
-                disable_notification=True,
             )
 
         with result.file_path.open("rb") as video_file:
@@ -114,10 +114,16 @@ async def publish_social_video(context: ContextTypes.DEFAULT_TYPE) -> None:
         await post_info.cancel_msg.delete()
 
         services.stats.add_forward(post_info.request.platform)
+    except InstagramAuthRequiredError:
+        await post_info.source_msg.reply_text(
+            voice.render_social_auth_required(label),
+            disable_notification=True,
+        )
     except Exception as exc:
         logger.error("Ошибка при скачивании social video", exc_info=exc)
         await post_info.source_msg.reply_text(
             voice.render_social_error(label, exc),
+            disable_notification=True,
         )
     finally:
         services.pending_store.pop(post_id, None)

@@ -15,10 +15,22 @@ def _get_services(context: ContextTypes.DEFAULT_TYPE) -> AppServices:
     return cast(AppServices, context.application.bot_data["services"])
 
 
+def _silent_in_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    chat = update.effective_chat
+    if chat is None:
+        return False
+
+    services = _get_services(context)
+    return chat.id == services.settings.group_id
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда /start и /help."""
     if update.message:
-        await update.message.reply_text(voice.render_welcome())
+        await update.message.reply_text(
+            voice.render_welcome(),
+            disable_notification=_silent_in_group(update, context),
+        )
 
 
 async def health_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -34,7 +46,10 @@ async def health_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
     if update.message:
-        await update.message.reply_text(response)
+        await update.message.reply_text(
+            response,
+            disable_notification=_silent_in_group(update, context),
+        )
 
 
 async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -44,17 +59,27 @@ async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     if not stats.total_attempts:
         if update.message:
-            await update.message.reply_text(voice.render_empty_stats())
+            await update.message.reply_text(
+                voice.render_empty_stats(),
+                disable_notification=_silent_in_group(update, context),
+            )
         return
 
     if update.message:
-        await update.message.reply_text(voice.render_stats(stats), parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(
+            voice.render_stats(stats),
+            parse_mode=ParseMode.MARKDOWN,
+            disable_notification=_silent_in_group(update, context),
+        )
 
 
 async def tell_joke(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Рассказать анекдот."""
     if update.message:
-        await update.message.reply_text(voice.render_tell_joke())
+        await update.message.reply_text(
+            voice.render_tell_joke(),
+            disable_notification=_silent_in_group(update, context),
+        )
 
 
 async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -66,11 +91,17 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     if update.effective_user is None or update.effective_user.id not in services.settings.admin_ids:
-        await message.reply_text(voice.render_admin_no_rights())
+        await message.reply_text(
+            voice.render_admin_no_rights(),
+            disable_notification=_silent_in_group(update, context),
+        )
         return
 
     if not context.args:
-        await message.reply_text(voice.render_admin_missing_args())
+        await message.reply_text(
+            voice.render_admin_missing_args(),
+            disable_notification=_silent_in_group(update, context),
+        )
         return
 
     text = " ".join(context.args)
@@ -79,8 +110,13 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             services.settings.channel_id,
             text,
             parse_mode=ParseMode.MARKDOWN,
-            disable_notification=True,
         )
-        await message.reply_text(voice.render_admin_success())
+        await message.reply_text(
+            voice.render_admin_success(),
+            disable_notification=_silent_in_group(update, context),
+        )
     except Exception as exc:
-        await message.reply_text(voice.render_admin_error(exc))
+        await message.reply_text(
+            voice.render_admin_error(exc),
+            disable_notification=_silent_in_group(update, context),
+        )

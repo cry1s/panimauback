@@ -8,6 +8,7 @@ from telegram import Message
 
 if TYPE_CHECKING:
     from panimau_bot.config import Settings
+    from panimau_bot.services.instagram_auth import InstagramAuthService
     from panimau_bot.services.downloader import SocialVideoDownloader
     from panimau_bot.stats import BotStats
 
@@ -64,3 +65,4 @@ class AppServices:
     stats: "BotStats"
     pending_store: PendingStore
     downloader: "SocialVideoDownloader"
+    instagram_auth: "InstagramAuthService"
