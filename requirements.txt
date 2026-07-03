@@ -18,4 +18,4 @@ typing_extensions==4.16.0
 tzdata==2026.2
 tzlocal==5.4.4
 yarl==1.24.2
-yt-dlp==2026.6.9
+yt-dlp @ https://github.com/yt-dlp/yt-dlp/archive/ac4c955ea93f35a3a426903141436a6468bddf9f.tar.gz
