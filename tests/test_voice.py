@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import re
 import unittest
-from datetime import datetime
 
 from panimau_bot import voice
-from panimau_bot.services.instagram_auth import InstagramAuthStatus
 from panimau_bot.stats import BotStats
 
 
@@ -49,7 +47,6 @@ class VoiceTests(unittest.TestCase):
             link="https://t.me/channel/1",
         )
         error_text = voice.render_social_error("рилс", "boom")
-        auth_text = voice.render_social_auth_required("рилс")
 
         self.assertIn("рилс", queue_text)
         self.assertIn("5", queue_text)
@@ -58,64 +55,36 @@ class VoiceTests(unittest.TestCase):
         self.assertIn("https://example.com/reel", caption_text)
         self.assertIn("https://t.me/channel/1", caption_text)
         self.assertIn("boom", error_text)
-        self.assertIn("/ig_login", auth_text)
 
-        for text in (queue_text, progress_text, success_text, caption_text, error_text, auth_text):
+        for text in (queue_text, progress_text, success_text, caption_text, error_text):
             self.assertIsNone(re.search(r"\{[a-z_]+\}", text))
 
-    def test_render_admin_and_instagram_templates_include_values(self) -> None:
+    def test_render_admin_templates_include_values(self) -> None:
         no_rights = voice.render_admin_no_rights()
         private_only = voice.render_admin_private_only()
         missing_args = voice.render_admin_missing_args()
         success = voice.render_admin_success()
         error = voice.render_admin_error("kaput")
-        status = voice.render_instagram_status(
-            InstagramAuthStatus(
-                has_cookiefile=True,
-                cookies_updated_at=datetime(2026, 6, 28, 12, 0, 0),
-                last_test_at=datetime(2026, 6, 28, 12, 5, 0),
-                last_test_ok=True,
-                last_test_message="download ok",
-            )
-        )
 
         self.assertIn("администратора", no_rights)
         self.assertIn("личке", private_only)
         self.assertIn("/broadcast <текст>", missing_args)
         self.assertIn("канал", success)
         self.assertIn("kaput", error)
-        self.assertIn("cookies: есть", status)
-        self.assertIn("download ok", status)
 
-        for text in (no_rights, private_only, missing_args, success, error, status):
+        for text in (no_rights, private_only, missing_args, success, error):
             self.assertIsNone(re.search(r"\{[a-z_]+\}", text))
 
-    def test_render_attachment_general_and_login_templates_include_values(self) -> None:
+    def test_render_attachment_and_general_templates_include_values(self) -> None:
         queue = voice.render_attachment_queue(5)
         publish_error = voice.render_attachment_publish_error("oops")
         general_error = voice.render_general_error()
-        intro = voice.render_instagram_login_intro()
-        ask_password = voice.render_instagram_login_ask_password("user")
-        failed = voice.render_instagram_login_failed("checkpoint")
-        test_started = voice.render_instagram_test_started("https://example.com/reel")
-        test_success = voice.render_instagram_test_success("download ok")
-        test_error = voice.render_instagram_test_error("boom")
 
         self.assertIn("5", queue)
         self.assertIn("oops", publish_error)
         self.assertIn("Антихайп", general_error)
-        self.assertIn("cookies.txt", intro)
-        self.assertIn("Netscape", intro)
-        self.assertIn("instagram.com", intro)
-        self.assertIn("документом", intro)
-        self.assertIn("/ig_test", intro)
-        self.assertIn("user", ask_password)
-        self.assertIn("checkpoint", failed)
-        self.assertIn("https://example.com/reel", test_started)
-        self.assertIn("download ok", test_success)
-        self.assertIn("boom", test_error)
 
-        for text in (queue, publish_error, general_error, intro, ask_password, failed, test_started, test_success, test_error):
+        for text in (queue, publish_error, general_error):
             self.assertIsNone(re.search(r"\{[a-z_]+\}", text))
 
 

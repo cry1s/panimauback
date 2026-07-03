@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes
 
 from panimau_bot.constants import REACTION_CHOICES, SOCIAL_PLATFORM_LABELS
 from panimau_bot.models import AppServices, PendingDownloadPost
-from panimau_bot.services.downloader import InstagramAuthRequiredError, extract_download_request
+from panimau_bot.services.downloader import extract_download_request
 from panimau_bot import voice
 
 logger = logging.getLogger(__name__)
@@ -114,11 +114,6 @@ async def publish_social_video(context: ContextTypes.DEFAULT_TYPE) -> None:
         await post_info.cancel_msg.delete()
 
         services.stats.add_forward(post_info.request.platform)
-    except InstagramAuthRequiredError:
-        await post_info.source_msg.reply_text(
-            voice.render_social_auth_required(label),
-            disable_notification=True,
-        )
     except Exception as exc:
         logger.error("Ошибка при скачивании social video", exc_info=exc)
         await post_info.source_msg.reply_text(
