@@ -30,9 +30,9 @@ class VoiceTests(unittest.TestCase):
 
         text = voice.render_stats(stats)
 
-        self.assertIn("Всего попыток: 3", text)
-        self.assertIn("Долетело в канал: 2", text)
-        self.assertIn("Отменено по дороге: 1", text)
+        self.assertIn("Всего поручений: 3", text)
+        self.assertIn("Доставлено в канал: 2", text)
+        self.assertIn("Отозвано по дороге: 1", text)
         self.assertIn("youtube: 1", text)
         self.assertIn("photo: 1", text)
         self.assertIsNone(re.search(r"\{[a-z_]+\}", text))
@@ -66,10 +66,12 @@ class VoiceTests(unittest.TestCase):
         success = voice.render_admin_success()
         error = voice.render_admin_error("kaput")
 
-        self.assertIn("администратора", no_rights)
-        self.assertIn("личке", private_only)
+        self.assertTrue(
+            any(word in no_rights for word in ("контракт", "печать", "Доступ"))
+        )
+        self.assertIn("лич", private_only)
         self.assertIn("/broadcast <текст>", missing_args)
-        self.assertIn("канал", success)
+        self.assertIn("канал", success.lower())
         self.assertIn("kaput", error)
 
         for text in (no_rights, private_only, missing_args, success, error):
@@ -82,9 +84,27 @@ class VoiceTests(unittest.TestCase):
 
         self.assertIn("5", queue)
         self.assertIn("oops", publish_error)
-        self.assertIn("Антихайп", general_error)
+        self.assertTrue(
+            any(word in general_error for word in ("Светл", "голов", "контракт"))
+        )
 
         for text in (queue, publish_error, general_error):
+            self.assertIsNone(re.search(r"\{[a-z_]+\}", text))
+
+    def test_release_and_feedback_templates_include_values(self) -> None:
+        changelog = voice.render_changelog("2.1.0", ("Первое", "Второе"))
+        version = voice.render_version("2.1.0", ("Первое",))
+        saved = voice.render_feedback_saved("abc123")
+        error = voice.render_feedback_error("disk full")
+
+        self.assertIn("2.1.0", changelog)
+        self.assertIn("Первое", changelog)
+        self.assertIn("Второе", changelog)
+        self.assertIn("2.1.0", version)
+        self.assertIn("abc123", saved)
+        self.assertIn("disk full", error)
+
+        for text in (changelog, version, saved, error):
             self.assertIsNone(re.search(r"\{[a-z_]+\}", text))
 
 

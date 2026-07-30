@@ -47,17 +47,17 @@ def _collect_attachment_items(message: Message) -> list[AttachmentItem]:
 
     if message.photo:
         items.append(("photo", message.photo[-1].file_id))
-    if message.video:
+    elif message.video:
         items.append(("video", message.video.file_id))
-    if message.audio:
+    elif message.audio:
         items.append(("audio", message.audio.file_id))
-    if message.voice:
+    elif message.voice:
         items.append(("voice", message.voice.file_id))
-    if message.document:
-        items.append(("document", message.document.file_id))
-    if message.animation:
+    elif message.animation:
         items.append(("animation", message.animation.file_id))
-    if message.sticker:
+    elif message.document:
+        items.append(("document", message.document.file_id))
+    elif message.sticker:
         items.append(("sticker", message.sticker.file_id))
 
     return items

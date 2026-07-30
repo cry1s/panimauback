@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from telegram import Update
+from telegram import BotCommand, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -16,10 +16,21 @@ from panimau_bot.config import Settings
 from panimau_bot.constants import SOCIAL_URL_FILTER_PATTERN
 from panimau_bot.handlers.attachments import ATTACHMENT_FILTER, handle_attachment
 from panimau_bot.handlers.callbacks import handle_cancel
-from panimau_bot.handlers.commands import admin_broadcast, health_check, show_stats, start, tell_joke
+from panimau_bot.handlers.commands import (
+    admin_broadcast,
+    export_feedback,
+    health_check,
+    show_stats,
+    show_version,
+    start,
+    submit_feedback,
+    tell_joke,
+)
 from panimau_bot.handlers.social import handle_social_link
 from panimau_bot.models import AppServices, PendingStore
+from panimau_bot.release import APP_VERSION, CHANGELOG
 from panimau_bot.services.downloader import SocialVideoDownloader
+from panimau_bot.services.state import BotState
 from panimau_bot.stats import BotStats
 from panimau_bot import voice
 
@@ -30,16 +41,57 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def on_startup(application: Application) -> None:
+    """Обновить меню и один раз объявить текущую версию в беседе."""
+    services = application.bot_data["services"]
+    if not isinstance(services, AppServices):
+        return
+
+    try:
+        await application.bot.set_my_commands(
+            (
+                BotCommand("start", "прочитать светлый контракт"),
+                BotCommand("health", "проверить котел и обе головы"),
+                BotCommand("stats", "открыть книгу поставок"),
+                BotCommand("joke", "выслушать вторую голову"),
+                BotCommand("feedback", "оставить жалобу или предложение"),
+                BotCommand("version", "показать редакцию контракта"),
+                BotCommand("help", "повторно зачитать устав"),
+            )
+        )
+    except Exception:
+        logger.exception("Не удалось обновить меню команд")
+
+    if services.state.has_announced(APP_VERSION):
+        return
+
+    try:
+        await application.bot.send_message(
+            chat_id=services.settings.group_id,
+            text=voice.render_changelog(APP_VERSION, CHANGELOG),
+            disable_notification=True,
+        )
+        services.state.mark_announced(APP_VERSION)
+    except Exception:
+        logger.exception("Не удалось объявить версию %s в беседе", APP_VERSION)
+
+
 def build_application(settings: Settings | None = None) -> Application:
     """Создаёт и настраивает приложение бота."""
     app_settings = settings or Settings.from_env()
-    application = Application.builder().token(app_settings.bot_token).build()
+    application = (
+        Application.builder()
+        .token(app_settings.bot_token)
+        .post_init(on_startup)
+        .build()
+    )
 
     application.bot_data["services"] = AppServices(
         settings=app_settings,
         stats=BotStats(),
         pending_store=PendingStore(),
         downloader=SocialVideoDownloader(),
+        state=BotState(app_settings.state_dir),
     )
 
     application.add_handler(CommandHandler("start", start))
@@ -47,6 +99,9 @@ def build_application(settings: Settings | None = None) -> Application:
     application.add_handler(CommandHandler("health", health_check))
     application.add_handler(CommandHandler("stats", show_stats))
     application.add_handler(CommandHandler("joke", tell_joke))
+    application.add_handler(CommandHandler("feedback", submit_feedback))
+    application.add_handler(CommandHandler("feedback_export", export_feedback))
+    application.add_handler(CommandHandler("version", show_version))
     application.add_handler(CommandHandler("broadcast", admin_broadcast))
     application.add_handler(
         MessageHandler(
@@ -85,5 +140,5 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 def main() -> None:
     """Главная функция запуска бота."""
     application = build_application()
-    logger.info("🚀 Бот запущен!")
+    logger.info("Огр-маги версии %s заступили на службу", APP_VERSION)
     application.run_polling(allowed_updates=Update.ALL_TYPES)

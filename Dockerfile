@@ -6,6 +6,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir -r requirements.txt
 COPY bot.py .
+COPY CHANGELOG.md .
 COPY panimau_bot ./panimau_bot
 RUN useradd -m -u 1000 botuser && chown -R botuser:botuser /app
 USER botuser

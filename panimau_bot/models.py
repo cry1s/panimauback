@@ -9,6 +9,7 @@ from telegram import Message
 if TYPE_CHECKING:
     from panimau_bot.config import Settings
     from panimau_bot.services.downloader import SocialVideoDownloader
+    from panimau_bot.services.state import BotState
     from panimau_bot.stats import BotStats
 
 AttachmentItem = tuple[str, str]
@@ -64,3 +65,4 @@ class AppServices:
     stats: "BotStats"
     pending_store: PendingStore
     downloader: "SocialVideoDownloader"
+    state: "BotState"

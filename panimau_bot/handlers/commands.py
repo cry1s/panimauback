@@ -4,10 +4,11 @@ import random
 from typing import cast
 
 from telegram import Update
-from telegram.constants import ParseMode
+from telegram.constants import ChatType, ParseMode
 from telegram.ext import ContextTypes
 
 from panimau_bot.models import AppServices
+from panimau_bot.release import APP_VERSION, CHANGELOG
 from panimau_bot import voice
 
 
@@ -22,6 +23,13 @@ def _silent_in_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool
 
     services = _get_services(context)
     return chat.id == services.settings.group_id
+
+
+def _is_admin(update: Update, services: AppServices) -> bool:
+    return (
+        update.effective_user is not None
+        and update.effective_user.id in services.settings.admin_ids
+    )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -82,6 +90,90 @@ async def tell_joke(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 
+async def show_version(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Показать текущую версию и список изменений."""
+    if update.message:
+        await update.message.reply_text(
+            voice.render_version(APP_VERSION, CHANGELOG),
+            disable_notification=_silent_in_group(update, context),
+        )
+
+
+async def submit_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Сохранить жалобу или предложение."""
+    services = _get_services(context)
+    message = update.message
+    user = update.effective_user
+    chat = update.effective_chat
+    if not message or not user or not chat:
+        return
+
+    feedback_text = " ".join(context.args).strip()
+    if not feedback_text:
+        await message.reply_text(
+            voice.render_feedback_missing(),
+            disable_notification=_silent_in_group(update, context),
+        )
+        return
+
+    try:
+        feedback_id = services.state.add_feedback(
+            text=feedback_text,
+            user_id=user.id,
+            username=user.username,
+            full_name=user.full_name,
+            chat_id=chat.id,
+            chat_type=chat.type,
+            message_id=message.message_id,
+            bot_version=APP_VERSION,
+        )
+        await message.reply_text(
+            voice.render_feedback_saved(feedback_id),
+            disable_notification=_silent_in_group(update, context),
+        )
+    except Exception as exc:
+        await message.reply_text(
+            voice.render_feedback_error(exc),
+            disable_notification=_silent_in_group(update, context),
+        )
+
+
+async def export_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Выгрузить журнал обращений администратору."""
+    services = _get_services(context)
+    message = update.message
+    if not message:
+        return
+
+    if not _is_admin(update, services):
+        await message.reply_text(
+            voice.render_admin_no_rights(),
+            disable_notification=_silent_in_group(update, context),
+        )
+        return
+
+    if message.chat.type != ChatType.PRIVATE:
+        await message.reply_text(
+            voice.render_admin_private_only(),
+            disable_notification=_silent_in_group(update, context),
+        )
+        return
+
+    if not services.state.has_feedback():
+        await message.reply_text(voice.render_feedback_empty())
+        return
+
+    try:
+        with services.state.feedback_file.open("rb") as feedback_file:
+            await message.reply_document(
+                document=feedback_file,
+                filename=f"feedback-{APP_VERSION}.jsonl",
+                caption=voice.render_feedback_export_caption(),
+            )
+    except Exception as exc:
+        await message.reply_text(voice.render_feedback_error(exc))
+
+
 async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда для админов - вброс в канал."""
     services = _get_services(context)
@@ -90,7 +182,7 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not message:
         return
 
-    if update.effective_user is None or update.effective_user.id not in services.settings.admin_ids:
+    if not _is_admin(update, services):
         await message.reply_text(
             voice.render_admin_no_rights(),
             disable_notification=_silent_in_group(update, context),

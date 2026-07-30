@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from panimau_bot.config import Settings
@@ -37,6 +38,7 @@ class ConfigTests(unittest.TestCase):
             settings = Settings.from_env()
 
         self.assertEqual(settings.download_delay_seconds, 5)
+        self.assertEqual(settings.state_dir, Path("data"))
 
     def test_prefers_single_file_format_without_ffmpeg(self) -> None:
         downloader = SocialVideoDownloader(ffmpeg_available=False)
