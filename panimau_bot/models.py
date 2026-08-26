@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from panimau_bot.config import Settings
     from panimau_bot.services.downloader import SocialVideoDownloader
     from panimau_bot.services.state import BotState
+    from panimau_bot.services.vk_archive import ArchiveRepublisher
     from panimau_bot.stats import BotStats
 
 AttachmentItem = tuple[str, str]
@@ -23,7 +24,7 @@ class DownloadRequest:
 
 @dataclass(slots=True)
 class DownloadResult:
-    file_path: Path
+    file_paths: tuple[Path, ...]
     url: str
     platform: str
 
@@ -66,3 +67,4 @@ class AppServices:
     pending_store: PendingStore
     downloader: "SocialVideoDownloader"
     state: "BotState"
+    archive: "ArchiveRepublisher | None" = None

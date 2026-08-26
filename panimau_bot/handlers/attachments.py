@@ -121,6 +121,9 @@ async def publish_post(context: ContextTypes.DEFAULT_TYPE) -> None:
         await asyncio.sleep(2)
         await post_info.cancel_msg.delete()
 
+        if services.archive is not None:
+            services.archive.register_channel_post(context)
+
         for file_type, _ in post_info.file_types:
             services.stats.add_forward(file_type)
     except Exception as exc:

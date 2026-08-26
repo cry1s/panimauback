@@ -41,6 +41,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 
+def _archive_progress(services: AppServices) -> tuple[int, int] | None:
+    if services.archive is not None and services.archive.enabled:
+        return services.archive.progress
+    return None
+
+
 async def health_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда проверки здоровья бота."""
     services = _get_services(context)
@@ -51,6 +57,7 @@ async def health_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         total_forwarded=services.stats.total_forwarded,
         cancelled=services.stats.cancelled,
         joke=joke,
+        archive_progress=_archive_progress(services),
     )
 
     if update.message:
@@ -75,7 +82,7 @@ async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     if update.message:
         await update.message.reply_text(
-            voice.render_stats(stats),
+            voice.render_stats(stats, archive_progress=_archive_progress(services)),
             parse_mode=ParseMode.MARKDOWN,
             disable_notification=_silent_in_group(update, context),
         )

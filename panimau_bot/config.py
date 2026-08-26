@@ -26,6 +26,11 @@ class Settings:
     admin_ids: tuple[int, ...]
     download_delay_seconds: int = 5
     state_dir: Path = Path("data")
+    vk_service_token: str = ""
+    vk_source_domain: str = "panim4u"
+    archive_trigger_posts: int = 3
+    archive_min_delay_seconds: int = 3600
+    archive_max_delay_seconds: int = 86400
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -36,4 +41,9 @@ class Settings:
             admin_ids=_parse_admin_ids(os.getenv("ADMIN_IDS", "")),
             download_delay_seconds=int(os.getenv("DOWNLOAD_DELAY_SECONDS", "5")),
             state_dir=Path(os.getenv("BOT_STATE_DIR", "data")),
+            vk_service_token=os.getenv("VK_SERVICE_TOKEN", ""),
+            vk_source_domain=os.getenv("VK_SOURCE_DOMAIN", "panim4u"),
+            archive_trigger_posts=int(os.getenv("ARCHIVE_TRIGGER_POSTS", "3")),
+            archive_min_delay_seconds=int(os.getenv("ARCHIVE_MIN_DELAY_SECONDS", "3600")),
+            archive_max_delay_seconds=int(os.getenv("ARCHIVE_MAX_DELAY_SECONDS", "86400")),
         )

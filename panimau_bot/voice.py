@@ -128,6 +128,7 @@ def render_health(
     total_forwarded: int,
     cancelled: int,
     joke: str | None = None,
+    archive_progress: tuple[int, int] | None = None,
 ) -> str:
     text = (
         f"{_pick(HEALTH_RESPONSES)}\n\n"
@@ -135,6 +136,9 @@ def render_health(
         f"Поставок в канал: {total_forwarded}\n"
         f"Отозванных контрактов: {cancelled}"
     )
+    if archive_progress is not None:
+        done, total = archive_progress
+        text += f"\nСтарые кладовые: разобрано {done} из {total}"
     if joke:
         text += f"\n\nМудрость второй головы:\n{joke}"
     return text
@@ -155,15 +159,18 @@ def render_empty_stats() -> str:
     )
 
 
-def render_stats(stats: "BotStats") -> str:
+def render_stats(stats: "BotStats", archive_progress: tuple[int, int] | None = None) -> str:
     text = (
         "*Книга светлых поставок:*\n\n"
         f"Смена длится: {stats.get_uptime()}\n"
         f"Всего поручений: {stats.total_attempts}\n"
         f"Доставлено в канал: {stats.total_forwarded}\n"
-        f"Отозвано по дороге: {stats.cancelled}\n\n"
-        "Состав каравана:"
+        f"Отозвано по дороге: {stats.cancelled}"
     )
+    if archive_progress is not None:
+        done, total = archive_progress
+        text += f"\nСтарые кладовые: разобрано {done} из {total}"
+    text += "\n\nСостав каравана:"
     for file_type, count in stats.by_type.items():
         emoji = FILE_EMOJIS.get(file_type, "•")
         text += f"\n{emoji} {file_type}: {count}"

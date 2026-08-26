@@ -23,7 +23,7 @@ SUPPORTED_URL_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "instagram",
         re.compile(
-            r"(?:(?:https?://)?(?:www\.)?instagram\.com/(?:[^/\s?#]+/)?reels?/(?!audio/)[^\s]+)",
+            r"(?:(?:https?://)?(?:www\.)?instagram\.com/(?:[^/\s?#]+/)?(?:p|reels?)/(?!audio/)[^\s]+)",
             re.IGNORECASE,
         ),
     ),
@@ -97,7 +97,6 @@ class SocialVideoDownloader:
             "format": format_selector,
             "outtmpl": output_template,
             "quiet": True,
-            "noplaylist": True,
         }
 
         if self.ffmpeg_available:
@@ -105,34 +104,31 @@ class SocialVideoDownloader:
 
         return options
 
-    def _resolve_downloaded_file(self, output_prefix: Path, prepared_path: Path) -> Path:
-        candidates = [
-            prepared_path,
-            prepared_path.with_suffix(".mp4"),
-            output_prefix.with_suffix(".mp4"),
-        ]
-
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-
-        wildcard_candidates = sorted(output_prefix.parent.glob(f"{output_prefix.name}.*"))
-        for candidate in wildcard_candidates:
-            if candidate.is_file():
-                return candidate
-
-        raise FileNotFoundError(f"Downloaded file was not found for {output_prefix.name}")
-
     def download(self, request: DownloadRequest) -> DownloadResult:
-        output_prefix = Path(tempfile.gettempdir()) / f"panimau_{request.platform}_{uuid4().hex}"
-        output_template = f"{output_prefix}.%(ext)s"
+        output_dir = Path(tempfile.gettempdir()) / f"panimau_{request.platform}_{uuid4().hex}"
+        output_template = str(output_dir / "%(id)s.%(ext)s")
 
-        with yt_dlp.YoutubeDL(self._build_options(output_template)) as downloader:
-            info = downloader.extract_info(request.url, download=True)
-            prepared_path = Path(downloader.prepare_filename(info))
+        try:
+            with yt_dlp.YoutubeDL(self._build_options(output_template)) as downloader:
+                info = downloader.extract_info(request.url, download=True)
+
+            if info is None:
+                raise RuntimeError(f"Извлечение не дало результата: {request.url}")
+
+            file_paths = tuple(
+                path.resolve()
+                for path in sorted(output_dir.iterdir())
+                if path.is_file()
+            )
+
+            if not file_paths:
+                raise FileNotFoundError(f"Downloaded files were not found for {output_dir.name}")
+        except Exception:
+            shutil.rmtree(output_dir, ignore_errors=True)
+            raise
 
         return DownloadResult(
-            file_path=self._resolve_downloaded_file(output_prefix, prepared_path).resolve(),
+            file_paths=file_paths,
             url=request.url,
             platform=request.platform,
         )

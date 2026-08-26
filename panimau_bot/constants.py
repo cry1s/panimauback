@@ -18,7 +18,7 @@ SOCIAL_PLATFORM_LABELS = {
 }
 
 SOCIAL_URL_FILTER_PATTERN = (
-    r"(youtube\.com/shorts/|youtu\.be/|instagram\.com/(?:[^/\s]+/)?reels?/|"
+    r"(youtube\.com/shorts/|youtu\.be/|instagram\.com/(?:[^/\s]+/)?(?:p|reels?)/|"
     r"(?:vm|vt)\.tiktok\.com/|tiktok\.com/@[^/\s]+/video/)"
 )
 

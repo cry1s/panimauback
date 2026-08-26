@@ -25,6 +25,9 @@ class SocialUrlTests(unittest.TestCase):
             "https://youtu.be/dQw4w9WgXcQ": "youtube",
             "https://www.instagram.com/user/reel/CWqAgUZgCku/": "instagram",
             "https://www.instagram.com/reel/DZ-ec0ixTgg/?igsh=MXNvaWdoYXU1dzduNQ==": "instagram",
+            "https://www.instagram.com/p/DcMS0FhsqGQ/?igsi=MTBzZDd6dnR4bnVnbw==": "instagram",
+            "https://www.instagram.com/p/Cop84x6u7CP/": "instagram",
+            "https://www.instagram.com/user/p/Cop84x6u7CP/": "instagram",
             "https://vm.tiktok.com/ZTR45GpSF/": "tiktok",
             "https://vt.tiktok.com/ZSe4FqkKd": "tiktok",
             "https://www.tiktok.com/@leenabhushan/video/6748451240264420610": "tiktok",
@@ -35,8 +38,10 @@ class SocialUrlTests(unittest.TestCase):
                 self.assertEqual(detect_platform(url), expected_platform)
 
     def test_ignores_unsupported_urls(self) -> None:
-        self.assertIsNone(extract_download_request("смотри https://www.instagram.com/p/Cop84x6u7CP/"))
         self.assertIsNone(extract_download_request("смотри https://example.com/video/123"))
+        self.assertIsNone(
+            extract_download_request("аудио https://www.instagram.com/reel/audio/12345/")
+        )
 
     def test_strips_trailing_punctuation(self) -> None:
         request = extract_download_request("глянь https://www.instagram.com/reel/Cop84x6u7CP/).")
@@ -56,6 +61,19 @@ class SocialUrlTests(unittest.TestCase):
         self.assertEqual(
             request.url,
             "https://www.instagram.com/reel/DZ-ec0ixTgg/?igsh=MXNvaWdoYXU1dzduNQ==",
+        )
+
+    def test_extracts_canary_post_with_query_string(self) -> None:
+        request = extract_download_request(
+            "проверь https://www.instagram.com/p/DcMS0FhsqGQ/?igsi=MTBzZDd6dnR4bnVnbw=="
+        )
+
+        self.assertIsNotNone(request)
+        assert request is not None
+        self.assertEqual(request.platform, "instagram")
+        self.assertEqual(
+            request.url,
+            "https://www.instagram.com/p/DcMS0FhsqGQ/?igsi=MTBzZDd6dnR4bnVnbw==",
         )
 
 
