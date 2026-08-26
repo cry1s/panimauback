@@ -6,6 +6,7 @@ import unittest
 from panimau_bot.services.downloader import (
     detect_platform,
     extract_download_request,
+    extract_image_urls_from_info,
     extract_instagram_shortcode,
     parse_instagram_embed,
 )
@@ -144,6 +145,35 @@ class InstagramEmbedTests(unittest.TestCase):
 
     def test_parse_embed_returns_empty_for_garbage(self) -> None:
         self.assertEqual([], parse_instagram_embed("<html>login page</html>"))
+
+
+class ImageUrlsFromInfoTests(unittest.TestCase):
+    def test_single_photo_post_picks_largest_thumbnail(self) -> None:
+        info = {
+            "thumbnails": [
+                {"url": "small", "width": 150, "height": 150, "preference": -10},
+                {"url": "large", "width": 1080, "height": 1350, "preference": -10},
+            ]
+        }
+
+        self.assertEqual(["large"], extract_image_urls_from_info(info))
+
+    def test_carousel_playlist_returns_one_url_per_entry(self) -> None:
+        info = {
+            "_type": "playlist",
+            "entries": [
+                {"thumbnails": [{"url": "first", "width": 640}]},
+                {"thumbnails": [{"url": "second", "width": 640}]},
+                None,
+                {"formats": [], "thumbnails": []},
+            ],
+        }
+
+        self.assertEqual(["first", "second"], extract_image_urls_from_info(info))
+
+    def test_video_post_without_thumbnails_yields_nothing(self) -> None:
+        self.assertEqual([], extract_image_urls_from_info({"formats": [{"url": "v.mp4"}]}))
+        self.assertEqual([], extract_image_urls_from_info(None))
 
 
 if __name__ == "__main__":

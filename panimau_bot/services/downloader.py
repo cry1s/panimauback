@@ -132,6 +132,35 @@ def parse_instagram_embed(html_text: str) -> list[str]:
     )
 
 
+def extract_image_urls_from_info(info: object) -> list[str]:
+    """Фото-посты не дают форматов, но несут полноразмерные картинки в thumbnails."""
+    if not isinstance(info, dict):
+        return []
+
+    if info.get("_type") == "playlist":
+        sources = [entry for entry in info.get("entries") or [] if isinstance(entry, dict)]
+    else:
+        sources = [info]
+
+    urls: list[str] = []
+    for source in sources:
+        thumbnails = [
+            thumb
+            for thumb in source.get("thumbnails") or []
+            if isinstance(thumb, dict) and isinstance(thumb.get("url"), str)
+        ]
+        if thumbnails:
+            best = max(
+                thumbnails,
+                key=lambda thumb: (
+                    thumb.get("preference") or 0,
+                    thumb.get("width") or 0,
+                ),
+            )
+            urls.append(best["url"])
+    return urls
+
+
 def detect_platform(url: str) -> str | None:
     normalized_url = _normalize_url(url)
     for platform, pattern in SUPPORTED_URL_PATTERNS:
@@ -196,20 +225,36 @@ class SocialVideoDownloader:
         output_dir = Path(tempfile.gettempdir()) / f"panimau_{request.platform}_{uuid4().hex}"
         output_template = str(output_dir / "%(id)s.%(ext)s")
 
+        options = self._build_options(output_template)
+        if request.platform == "instagram":
+            options["ignore_no_formats"] = True
+
         try:
-            with yt_dlp.YoutubeDL(self._build_options(output_template)) as downloader:
+            with yt_dlp.YoutubeDL(options) as downloader:
                 info = downloader.extract_info(request.url, download=True)
 
             if info is None:
                 raise RuntimeError(f"Извлечение не дало результата: {request.url}")
 
-            file_paths = tuple(
-                path.resolve()
-                for path in sorted(output_dir.iterdir())
-                if path.is_file()
+            file_paths = (
+                tuple(
+                    path.resolve()
+                    for path in sorted(output_dir.iterdir())
+                    if path.is_file()
+                )
+                if output_dir.exists()
+                else ()
             )
 
             if not file_paths:
+                image_urls = extract_image_urls_from_info(info)
+                if image_urls:
+                    saved = self._save_url_list(output_dir, image_urls)
+                    return DownloadResult(
+                        file_paths=tuple(path.resolve() for path in saved),
+                        url=request.url,
+                        platform=request.platform,
+                    )
                 raise FileNotFoundError(f"Downloaded files were not found for {output_dir.name}")
         except DownloadError as exc:
             shutil.rmtree(output_dir, ignore_errors=True)
@@ -238,6 +283,23 @@ class SocialVideoDownloader:
             platform=request.platform,
         )
 
+    def _save_url_list(self, output_dir: Path, urls: list[str], prefix: str = "photo") -> tuple[Path, ...]:
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            file_paths: list[Path] = []
+            for index, media_url in enumerate(urls):
+                target = output_dir / f"{prefix}_{index:02d}.jpg"
+                response = requests.get(media_url, headers=INSTAGRAM_HEADERS, timeout=30)
+                response.raise_for_status()
+                target.write_bytes(response.content)
+                file_paths.append(target)
+        except Exception:
+            shutil.rmtree(output_dir, ignore_errors=True)
+            raise
+
+        return tuple(file_paths)
+
     def _download_instagram_photos(self, url: str) -> tuple[Path, ...]:
         shortcode = extract_instagram_shortcode(url)
         if not shortcode:
@@ -252,21 +314,13 @@ class SocialVideoDownloader:
 
         media_urls = parse_instagram_embed(embed_response.text)
         if not media_urls:
+            logger.warning(
+                "Embed для %s отдал страницу без медиа (status=%s, %s байт)",
+                shortcode,
+                embed_response.status_code,
+                len(embed_response.text),
+            )
             return ()
 
         output_dir = Path(tempfile.gettempdir()) / f"panimau_instaphoto_{uuid4().hex}"
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            file_paths: list[Path] = []
-            for index, media_url in enumerate(media_urls):
-                target = output_dir / f"photo_{index:02d}.jpg"
-                response = requests.get(media_url, headers=INSTAGRAM_HEADERS, timeout=30)
-                response.raise_for_status()
-                target.write_bytes(response.content)
-                file_paths.append(target)
-        except Exception:
-            shutil.rmtree(output_dir, ignore_errors=True)
-            raise
-
-        return tuple(file_paths)
+        return self._save_url_list(output_dir, media_urls)
