@@ -353,5 +353,36 @@ def render_feedback_error(error: object) -> str:
     )
 
 
+VK_DIAGNOSTIC_NO_TOKEN_TEMPLATES = (
+    "Клетка пуста: ключ от кладовых (VK_SERVICE_TOKEN) даже не выдан. Нечего досматривать.",
+    "Без VK_SERVICE_TOKEN старые запасы заперты наглухо. Код 112 бессилен, обе головы разводят руки.",
+    "Токен не задан. Силы Света не выдали пропуск в закрома, и код 112 не отопрёт замок.",
+)
+
+VK_DIAGNOSTIC_OK_TEMPLATES = (
+    "Ключ подошёл! Кладовые открыты: {group_name} (id {group_id}). Можно раздавать запасы.",
+    "Досмотр пройден: {group_name} (id {group_id}) встречает обе головы. Закрома под присмотром.",
+    "Токен живой, сообщество {group_name} (id {group_id}) на месте. Архив готов просачиваться.",
+)
+
+VK_DIAGNOSTIC_ERROR_TEMPLATES = (
+    "Ключ не подошёл: ({error}). Кладовые молчат, обе головы в недоумении.",
+    "Досмотр провален: ({error}). Силы Света вернули токен с пометкой отказа.",
+    "Клетка не открылась: ({error}). Проверь ключ и доступ к старым запасам.",
+)
+
+
+def render_vk_diagnostic_no_token() -> str:
+    return _pick(VK_DIAGNOSTIC_NO_TOKEN_TEMPLATES)
+
+
+def render_vk_diagnostic_ok(group_name: str, group_id: int) -> str:
+    return _pick(VK_DIAGNOSTIC_OK_TEMPLATES).format(group_name=group_name, group_id=group_id)
+
+
+def render_vk_diagnostic_error(error: str) -> str:
+    return _pick(VK_DIAGNOSTIC_ERROR_TEMPLATES).format(error=error)
+
+
 def render_general_error() -> str:
     return _pick(GENERAL_ERROR_TEMPLATES)

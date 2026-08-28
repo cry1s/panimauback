@@ -181,6 +181,53 @@ async def export_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await message.reply_text(voice.render_feedback_error(exc))
 
 
+async def vk_diagnostic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Секретный код 112: досмотр ключа от старых кладовых."""
+    services = _get_services(context)
+    message = update.message
+
+    if not message:
+        return
+
+    if not _is_admin(update, services):
+        await message.reply_text(
+            voice.render_admin_no_rights(),
+            disable_notification=_silent_in_group(update, context),
+        )
+        return
+
+    if not services.archive or not services.settings.vk_service_token:
+        await message.reply_text(
+            voice.render_vk_diagnostic_no_token(),
+            disable_notification=_silent_in_group(update, context),
+        )
+        return
+
+    try:
+        result = await asyncio.to_thread(services.archive.client.diagnose)
+    except Exception as exc:
+        await message.reply_text(
+            voice.render_vk_diagnostic_error(str(exc)),
+            disable_notification=_silent_in_group(update, context),
+        )
+        return
+
+    if result.get("ok"):
+        await message.reply_text(
+            voice.render_vk_diagnostic_ok(
+                group_name=str(result.get("group_name", "")),
+                group_id=int(result.get("group_id") or 0),
+            ),
+            disable_notification=_silent_in_group(update, context),
+        )
+        return
+
+    await message.reply_text(
+        voice.render_vk_diagnostic_error(str(result.get("error", "неизвестная причина"))),
+        disable_notification=_silent_in_group(update, context),
+    )
+
+
 async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда для админов - вброс в канал."""
     services = _get_services(context)

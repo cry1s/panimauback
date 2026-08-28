@@ -27,6 +27,7 @@ def make_settings(**overrides: object) -> SimpleNamespace:
         "vk_service_token": "token",
         "vk_source_domain": "panim4u",
         "channel_id": "@channel",
+        "group_id": -100,
         "archive_trigger_posts": 3,
         "archive_min_delay_seconds": 0,
         "archive_max_delay_seconds": 10,
@@ -470,16 +471,18 @@ class ArchivePublishTests(unittest.IsolatedAsyncioTestCase):
                 state,
                 client=StubClient(posts_by_id={5: post}),
             )
-            bot = SimpleNamespace(send_message=AsyncMock())
+            bot = SimpleNamespace(send_message=AsyncMock(), send_media_group=AsyncMock())
             job_queue = FakeJobQueue()
             context = SimpleNamespace(bot=bot, job_queue=job_queue)
 
             await republisher.publish_scheduled(context)
 
-            bot.send_message.assert_awaited_once()
-            args, _kwargs = bot.send_message.await_args
-            self.assertEqual("@channel", args[0])
-            self.assertEqual("старый пост", args[1])
+            self.assertEqual(2, bot.send_message.await_count)
+            chat_ids = {call.args[0] for call in bot.send_message.await_args_list}
+            self.assertEqual({"@channel", -100}, chat_ids)
+            self.assertTrue(
+                all(call.args[1] == "старый пост" for call in bot.send_message.await_args_list)
+            )
             self.assertEqual([6], republisher._queue)
             self.assertEqual([5], republisher._published)
             self.assertEqual((1, 2), republisher.progress)
@@ -561,17 +564,67 @@ class ArchivePublishTests(unittest.IsolatedAsyncioTestCase):
                     await republisher.publish_scheduled(context)
 
             self.assertFalse(bot.send_message.await_count)
-            self.assertEqual(2, bot.send_media_group.await_count)
+            self.assertEqual(4, bot.send_media_group.await_count)
 
-            visual_call, audio_call = bot.send_media_group.await_args_list
-            media_kinds = [type(item).__name__ for item in visual_call.kwargs["media"]]
-            audio_kinds = [type(item).__name__ for item in audio_call.kwargs["media"]]
-            self.assertEqual(["InputMediaPhoto", "InputMediaVideo"], media_kinds)
-            self.assertEqual(["InputMediaAudio"], audio_kinds)
-            self.assertEqual("@channel", visual_call.args[0])
-            self.assertEqual("медиа пост", visual_call.kwargs["media"][0].caption)
+            delivered_chats = {call.args[0] for call in bot.send_media_group.await_args_list}
+            self.assertEqual({"@channel", -100}, delivered_chats)
+
+            visual_calls = [
+                call for call in bot.send_media_group.await_args_list
+                if [type(item).__name__ for item in call.kwargs["media"]]
+                == ["InputMediaPhoto", "InputMediaVideo"]
+            ]
+            audio_calls = [
+                call for call in bot.send_media_group.await_args_list
+                if [type(item).__name__ for item in call.kwargs["media"]]
+                == ["InputMediaAudio"]
+            ]
+            self.assertEqual(2, len(visual_calls))
+            self.assertEqual(2, len(audio_calls))
+            self.assertEqual("медиа пост", visual_calls[0].kwargs["media"][0].caption)
             self.assertEqual([], republisher._queue)
             self.assertEqual([3], republisher._published)
+
+
+class VkDiagnoseTests(unittest.TestCase):
+    def test_diagnose_reports_token_failure(self) -> None:
+        class FailingClient(VkWallClient):
+            def _call(self, method: str, **params: object) -> object:
+                raise RuntimeError("VK API users.get: User authorization failed")
+
+        client = FailingClient("token", "panim4u")
+
+        result = client.diagnose()
+
+        self.assertFalse(result["ok"])
+        self.assertIn("User authorization failed", str(result["error"]))
+
+    def test_diagnose_reports_missing_group(self) -> None:
+        client = ScriptedClient(
+            {
+                "users.get": [[]],
+                "groups.getById": [{"groups": []}],
+            }
+        )
+
+        result = client.diagnose()
+
+        self.assertFalse(result["ok"])
+        self.assertIn("panim4u", str(result["error"]))
+
+    def test_diagnose_reports_success(self) -> None:
+        client = ScriptedClient(
+            {
+                "users.get": [[{"id": 1, "first_name": "A", "last_name": "B"}]],
+                "groups.getById": [{"groups": [{"id": 77, "name": "Панимау"}]}],
+            }
+        )
+
+        result = client.diagnose()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual("Панимау", result["group_name"])
+        self.assertEqual(77, result["group_id"])
 
 
 if __name__ == "__main__":

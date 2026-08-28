@@ -26,6 +26,7 @@ from panimau_bot.handlers.commands import (
     start,
     submit_feedback,
     tell_joke,
+    vk_diagnostic,
 )
 from panimau_bot.handlers.social import handle_social_link
 from panimau_bot.models import AppServices, PendingStore
@@ -76,13 +77,13 @@ async def on_startup(application: Application) -> None:
     if services.state.has_announced(APP_VERSION):
         return
 
+    services.state.mark_announced(APP_VERSION)
     try:
         await application.bot.send_message(
             chat_id=services.settings.group_id,
             text=voice.render_changelog(APP_VERSION, CHANGELOG),
             disable_notification=True,
         )
-        services.state.mark_announced(APP_VERSION)
     except Exception:
         logger.exception("Не удалось объявить версию %s в беседе", APP_VERSION)
 
@@ -117,6 +118,7 @@ def build_application(settings: Settings | None = None) -> Application:
     application.add_handler(CommandHandler("feedback", submit_feedback))
     application.add_handler(CommandHandler("feedback_export", export_feedback))
     application.add_handler(CommandHandler("version", show_version))
+    application.add_handler(CommandHandler("112", vk_diagnostic))
     application.add_handler(CommandHandler("broadcast", admin_broadcast))
     application.add_handler(
         MessageHandler(

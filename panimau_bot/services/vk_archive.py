@@ -244,6 +244,34 @@ class VkWallClient:
                 return photo[key]
         return None
 
+    def diagnose(self) -> dict[str, object]:
+        """Секретный досмотр: валиден ли токен и открывается ли источник."""
+        result: dict[str, object] = {"ok": False}
+
+        try:
+            self._call("users.get")
+        except Exception as exc:
+            result["error"] = f"токен не прошёл досмотр: {exc}"
+            return result
+
+        try:
+            groups = self._unwrap_items(
+                self._call("groups.getById", domain=self.source_domain, fields="name"),
+                "groups",
+            )
+        except Exception as exc:
+            result["error"] = f"старые кладовые не открылись: {exc}"
+            return result
+
+        if not groups:
+            result["error"] = f"сообщество {self.source_domain} не найдено под этим ключом"
+            return result
+
+        result["ok"] = True
+        result["group_name"] = str(groups[0].get("name", ""))
+        result["group_id"] = int(groups[0].get("id") or 0)
+        return result
+
     def resolve_video_file(self, video: dict[str, Any]) -> str | None:
         owner_id = int(video.get("owner_id") or 0)
         video_id = int(video.get("id") or 0)
@@ -527,23 +555,14 @@ class ArchiveRepublisher:
         audios = collect_audios(post)
 
         try:
-            media_files = await loop.run_in_executor(None, self._download_media, photos, videos, audios)
-            visual_files, audio_files = media_files
+            visual_files, audio_files = await loop.run_in_executor(
+                None, self._download_media, photos, videos, audios
+            )
 
-            caption_fits_media = len(caption) <= CAPTION_LIMIT_MEDIA
+            for chat_id in (self.settings.channel_id, self.settings.group_id):
+                await self._deliver_to(context, chat_id, caption, visual_files, audio_files)
 
-            if not visual_files and not audio_files:
-                await context.bot.send_message(self.settings.channel_id, caption)
-            else:
-                if not caption_fits_media:
-                    await context.bot.send_message(self.settings.channel_id, caption)
-
-                group_caption = caption if caption_fits_media else None
-                if visual_files:
-                    await self._send_grouped(context, visual_files, group_caption)
-                if audio_files:
-                    audio_caption = group_caption if not visual_files else None
-                    await self._send_grouped(context, audio_files, audio_caption)
+            logger.info("Закрома: пост %s разошёлся по каналу и беседе.", post_id)
         except Exception as exc:
             logger.exception("Запас %s не прошел в канал: (%s)", post_id, exc)
             self._queue.append(post_id)
@@ -561,7 +580,33 @@ class ArchiveRepublisher:
         logger.info("Закрома: разобрано %s из %s.", done, total)
         self._save()
 
-    async def _send_grouped(self, context: Any, files: list[Path], caption: str | None) -> None:
+    async def _deliver_to(
+        self,
+        context: Any,
+        chat_id: object,
+        caption: str,
+        visual_files: list[Path],
+        audio_files: list[Path],
+    ) -> None:
+        if not visual_files and not audio_files:
+            await context.bot.send_message(chat_id, caption)
+            return
+
+        caption_fits_media = len(caption) <= CAPTION_LIMIT_MEDIA
+
+        if not caption_fits_media:
+            await context.bot.send_message(chat_id, caption)
+
+        group_caption = caption if caption_fits_media else None
+        if visual_files:
+            await self._send_grouped(context, chat_id, visual_files, group_caption)
+        if audio_files:
+            audio_caption = group_caption if not visual_files else None
+            await self._send_grouped(context, chat_id, audio_files, audio_caption)
+
+    async def _send_grouped(
+        self, context: Any, chat_id: object, files: list[Path], caption: str | None
+    ) -> None:
         handles = []
         try:
             media = []
@@ -582,7 +627,7 @@ class ArchiveRepublisher:
 
             for start in range(0, len(media), MAX_MEDIA_PER_POST):
                 chunk = media[start : start + MAX_MEDIA_PER_POST]
-                await context.bot.send_media_group(self.settings.channel_id, media=chunk)
+                await context.bot.send_media_group(chat_id, media=chunk)
         finally:
             for handle in handles:
                 handle.close()
