@@ -222,7 +222,7 @@ class VkWallClient:
 
     def group_id(self) -> int:
         if self._group_id is None:
-            response = self._call("groups.getById", domain=self.source_domain, fields="name")
+            response = self._call("groups.getById", group_id=self.source_domain, fields="name")
             groups = self._unwrap_items(response, "groups")
             if not groups:
                 raise RuntimeError(f"VK API: не нашли сообщество {self.source_domain}")
@@ -256,7 +256,7 @@ class VkWallClient:
 
         try:
             groups = self._unwrap_items(
-                self._call("groups.getById", domain=self.source_domain, fields="name"),
+                self._call("groups.getById", group_id=self.source_domain, fields="name"),
                 "groups",
             )
         except Exception as exc:
@@ -355,7 +355,7 @@ class VkWallClient:
                 if users:
                     name = f"{users[0].get('first_name', '')} {users[0].get('last_name', '')}".strip()
             else:
-                response = self._call("groups.getById", group_ids=-from_id, fields="name")
+                response = self._call("groups.getById", group_id=-from_id, fields="name")
                 groups = self._unwrap_items(response, "groups")
                 if groups:
                     name = str(groups[0].get("name", "")).strip()

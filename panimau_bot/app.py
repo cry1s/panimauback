@@ -77,7 +77,11 @@ async def on_startup(application: Application) -> None:
     if services.state.has_announced(APP_VERSION):
         return
 
-    services.state.mark_announced(APP_VERSION)
+    try:
+        services.state.mark_announced(APP_VERSION)
+    except Exception:
+        logger.exception("Не удалось пометить версию %s как объявленную", APP_VERSION)
+
     try:
         await application.bot.send_message(
             chat_id=services.settings.group_id,
