@@ -688,3 +688,18 @@ async def publish_scheduled_post(context: Any) -> None:
     if archive is None:
         return
     await archive.publish_scheduled(context)
+
+
+async def ensure_queue_job(context: Any) -> None:
+    """Собираем очередь кладовых, повторяя попытку, пока не выйдет."""
+    services = context.application.bot_data.get("services")
+    archive = getattr(services, "archive", None)
+    if archive is None or not archive.enabled:
+        return
+
+    try:
+        await asyncio.to_thread(archive.ensure_queue)
+    except Exception:
+        logger.warning("Не удалось собрать старые кладовые, повторим позже")
+        if context.job_queue is not None:
+            context.job_queue.run_once(ensure_queue_job, 300)

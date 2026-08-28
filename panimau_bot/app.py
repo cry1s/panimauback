@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from telegram import BotCommand, Update
@@ -34,7 +33,11 @@ from panimau_bot.models import AppServices, PendingStore
 from panimau_bot.release import APP_VERSION, CHANGELOG
 from panimau_bot.services.downloader import SocialVideoDownloader
 from panimau_bot.services.state import BotState
-from panimau_bot.services.vk_archive import ArchiveRepublisher, publish_scheduled_post
+from panimau_bot.services.vk_archive import (
+    ArchiveRepublisher,
+    ensure_queue_job,
+    publish_scheduled_post,
+)
 from panimau_bot.stats import BotStats
 from panimau_bot import voice
 
@@ -67,10 +70,7 @@ async def on_startup(application: Application) -> None:
         logger.exception("Не удалось обновить меню команд")
 
     if services.archive is not None and application.job_queue is not None:
-        try:
-            await asyncio.to_thread(services.archive.ensure_queue)
-        except Exception:
-            logger.exception("Не удалось разобрать заветные запасы")
+        application.job_queue.run_once(ensure_queue_job, 2)
         delay = services.archive.resume_pending_schedule()
         if delay is not None:
             application.job_queue.run_once(publish_scheduled_post, delay)

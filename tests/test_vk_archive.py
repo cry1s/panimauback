@@ -470,6 +470,63 @@ class ArchiveRepublisherTests(unittest.TestCase):
             self.assertEqual([], disabled_job_queue.jobs)
 
 
+class EnsureQueueJobTests(unittest.IsolatedAsyncioTestCase):
+    async def test_retries_until_success(self) -> None:
+        from panimau_bot.services.vk_archive import ensure_queue_job
+
+        class FailingThenOkClient(StubClient):
+            def __init__(self) -> None:
+                super().__init__()
+                self.attempts = 0
+
+            def fetch_all_post_ids(self) -> list[int]:
+                self.attempts += 1
+                if self.attempts < 2:
+                    raise RuntimeError("vk down")
+                return [1, 2, 3]
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            state = BotState(Path(temporary_dir))
+            archive = ArchiveRepublisher(
+                make_settings(vk_service_token="token", archive_trigger_posts=3),
+                state,
+                client=FailingThenOkClient(),
+            )
+            job_queue = FakeJobQueue()
+            services = SimpleNamespace(archive=archive)
+            context = SimpleNamespace(
+                application=SimpleNamespace(bot_data={"services": services}),
+                job_queue=job_queue,
+            )
+
+            await ensure_queue_job(context)
+            self.assertEqual(0, archive._total)
+            self.assertEqual(1, len(job_queue.jobs))
+
+            await ensure_queue_job(context)
+            self.assertEqual(3, archive._total)
+            self.assertEqual(1, len(job_queue.jobs))
+
+    async def test_skips_when_disabled(self) -> None:
+        from panimau_bot.services.vk_archive import ensure_queue_job
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            archive = ArchiveRepublisher(
+                make_settings(vk_service_token=""),
+                BotState(Path(temporary_dir)),
+                client=StubClient(),
+            )
+            job_queue = FakeJobQueue()
+            services = SimpleNamespace(archive=archive)
+            context = SimpleNamespace(
+                application=SimpleNamespace(bot_data={"services": services}),
+                job_queue=job_queue,
+            )
+
+            await ensure_queue_job(context)
+            self.assertEqual(0, len(job_queue.jobs))
+
+
 class ArchivePublishTests(unittest.IsolatedAsyncioTestCase):
     async def test_publish_scheduled_posts_full_text_post(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:
@@ -670,6 +727,7 @@ class VkArchiveNowCommandTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_requires_private_chat(self) -> None:
         from telegram.constants import ChatType
+        from unittest.mock import patch
 
         from panimau_bot.handlers.commands import vk_archive_now
 
@@ -681,17 +739,27 @@ class VkArchiveNowCommandTests(unittest.IsolatedAsyncioTestCase):
             message=message,
         )
 
-        await vk_archive_now(update, await self._build_context(services))
+        with patch("panimau_bot.voice.render_admin_private_only") as private_only, patch(
+            "panimau_bot.voice.render_admin_no_rights"
+        ) as no_rights, patch("panimau_bot.voice.render_vk_diagnostic_no_token") as no_token:
+            await vk_archive_now(update, await self._build_context(services))
 
-        message.reply_text.assert_awaited()
-        self.assertIn("лич", str(message.reply_text.await_args))
+        private_only.assert_called_once()
+        no_rights.assert_not_called()
+        no_token.assert_not_called()
 
     async def test_requires_admin(self) -> None:
         from telegram.constants import ChatType
+        from unittest.mock import patch
 
         from panimau_bot.handlers.commands import vk_archive_now
 
-        services = self._make_services(None, admin_ids=(7,))
+        archive = ArchiveRepublisher(
+            make_settings(vk_service_token="token"),
+            BotState(Path(tempfile.mkdtemp())),
+            client=StubClient(),
+        )
+        services = self._make_services(archive, admin_ids=(7,))
         message = SimpleNamespace(reply_text=AsyncMock())
         update = SimpleNamespace(
             effective_chat=SimpleNamespace(type=ChatType.PRIVATE, id=-100),
@@ -699,13 +767,22 @@ class VkArchiveNowCommandTests(unittest.IsolatedAsyncioTestCase):
             message=message,
         )
 
-        await vk_archive_now(update, await self._build_context(services))
+        with patch("panimau_bot.voice.render_admin_no_rights") as no_rights, patch(
+            "panimau_bot.voice.render_admin_private_only"
+        ) as private_only, patch("panimau_bot.voice.render_vk_diagnostic_no_token") as no_token, patch(
+            "panimau_bot.voice.render_vk_archive_now_ok"
+        ) as now_ok, patch("panimau_bot.voice.render_vk_archive_empty") as empty:
+            await vk_archive_now(update, await self._build_context(services))
 
-        message.reply_text.assert_awaited()
-        self.assertIn("контракт", str(message.reply_text.await_args))
+        no_rights.assert_called_once()
+        private_only.assert_not_called()
+        no_token.assert_not_called()
+        now_ok.assert_not_called()
+        empty.assert_not_called()
 
     async def test_publishes_immediately_without_rescheduling(self) -> None:
         from telegram.constants import ChatType
+        from unittest.mock import patch
 
         from panimau_bot.handlers.commands import vk_archive_now
 
@@ -727,10 +804,18 @@ class VkArchiveNowCommandTests(unittest.IsolatedAsyncioTestCase):
                 message=message,
             )
 
-            await vk_archive_now(update, await self._build_context(services, job_queue))
+            with patch("panimau_bot.voice.render_vk_archive_now_ok") as now_ok, patch(
+                "panimau_bot.voice.render_vk_diagnostic_no_token"
+            ) as no_token, patch("panimau_bot.voice.render_admin_no_rights") as no_rights, patch(
+                "panimau_bot.voice.render_admin_private_only"
+            ) as private_only, patch("panimau_bot.voice.render_vk_archive_empty") as empty:
+                await vk_archive_now(update, await self._build_context(services, job_queue))
 
-            message.reply_text.assert_awaited()
-            self.assertIn("Разобрано", str(message.reply_text.await_args))
+            now_ok.assert_called_once()
+            no_token.assert_not_called()
+            no_rights.assert_not_called()
+            private_only.assert_not_called()
+            empty.assert_not_called()
             self.assertEqual([], archive._queue)
             self.assertEqual([5], archive._published)
             self.assertEqual(0, len(job_queue.jobs))
