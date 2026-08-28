@@ -21,6 +21,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+class MediaUnavailableError(Exception):
+    """Медиа поста недоступно для скачивания — пост целиком пропускаем."""
+
+
 VK_API_URL = "https://api.vk.com/method/{method}"
 VK_API_VERSION = "5.199"
 REQUEST_TIMEOUT = 30
@@ -97,40 +102,38 @@ class VkPost:
         return self.repost is None or self.repost.is_empty
 
 
-def _fallback_lines(attachments: VkAttachments) -> list[str]:
-    """Строки для медиа, которое не удалось вытащить файлом."""
-    lines: list[str] = []
-    for video in attachments.videos:
-        if video.file_url is None:
-            lines.append(f"🎥 {video.title or 'видео'}: {video.page_url}")
-    for audio in attachments.audios:
-        if audio.url is None:
-            lines.append(f"🎵 {audio.label}")
-    return lines
-
-
 def build_post_caption(post: VkPost, limit: int = CAPTION_LIMIT_TEXT) -> str:
-    """Собираем текст поста вместе с репостом и недостающими вложениями."""
+    """Собираем текст поста вместе с репостом. Без ссылок на недостающее медиа."""
     parts: list[str] = []
     if post.text.strip():
         parts.append(post.text.strip())
-
-    fallbacks = _fallback_lines(post.attachments)
 
     if post.repost is not None and not post.repost.is_empty:
         header = f"↪ {post.repost.author}:" if post.repost.author else "↪ из чужой ленты:"
         block_parts = [header]
         if post.repost.text.strip():
             block_parts.append(post.repost.text.strip())
-        block_parts.extend(_fallback_lines(post.repost.attachments))
         parts.append("\n".join(part for part in block_parts if part))
-
-    parts.extend(line for line in fallbacks if line)
 
     caption = "\n\n".join(part for part in parts if part).strip()
     if len(caption) > limit:
         caption = caption[: limit - 1].rstrip() + "…"
     return caption
+
+
+def post_has_unresolved_media(post: VkPost) -> bool:
+    """Пост содержит видео/аудио, которое нельзя скачать файлом — пост целиком скипаем."""
+    sources = [post.attachments]
+    if post.repost is not None:
+        sources.append(post.repost.attachments)
+    for source in sources:
+        for video in source.videos:
+            if video.file_url is None:
+                return True
+        for audio in source.audios:
+            if audio.url is None:
+                return True
+    return False
 
 
 def collect_visual_media(
@@ -227,6 +230,7 @@ class VkWallClient:
             if not groups:
                 raise RuntimeError(f"VK API: не нашли сообщество {self.source_domain}")
             self._group_id = int(groups[0]["id"])
+            self._name_cache[self._group_id] = str(groups[0].get("name", ""))
         return self._group_id
 
     @staticmethod
@@ -255,21 +259,28 @@ class VkWallClient:
             return result
 
         try:
-            groups = self._unwrap_items(
-                self._call("groups.getById", group_id=self.source_domain, fields="name"),
-                "groups",
-            )
+            group_id = self.group_id()
         except Exception as exc:
             result["error"] = f"старые кладовые не открылись: {exc}"
             return result
 
-        if not groups:
-            result["error"] = f"сообщество {self.source_domain} не найдено под этим ключом"
+        try:
+            wall = self._call(
+                "wall.get",
+                owner_id=-group_id,
+                offset=0,
+                count=1,
+                filter="owner",
+            )
+            total = int((wall or {}).get("count") or 0) if isinstance(wall, dict) else 0
+        except Exception as exc:
+            result["error"] = f"стена недоступна для чтения: {exc}"
             return result
 
         result["ok"] = True
-        result["group_name"] = str(groups[0].get("name", ""))
-        result["group_id"] = int(groups[0].get("id") or 0)
+        result["group_name"] = self._name_cache.get(group_id, "")
+        result["group_id"] = group_id
+        result["wall_posts"] = total
         return result
 
     def resolve_video_file(self, video: dict[str, Any]) -> str | None:
@@ -438,6 +449,7 @@ class ArchiveRepublisher:
         self._total = 0
         self._counter = 0
         self._scheduled_at: str | None = None
+        self._ensure_scheduled = False
         self._load()
 
     @property
@@ -487,11 +499,27 @@ class ArchiveRepublisher:
         self._total = len(ids) + len(self._published)
         self._save()
 
+    def _ensure_queue_later(self, context: Any) -> None:
+        """Очередь ещё пуста — дозаряжаем её в фоне, чтобы дрип не молчал навсегда."""
+        if self._ensure_scheduled:
+            return
+        self._ensure_scheduled = True
+        if context.job_queue is not None:
+            context.job_queue.run_once(ensure_queue_job, 5)
+        logger.warning("Закрома ещё пусты — отложили сбор очереди в фоне.")
+
     # --- планирование ----------------------------------------------------
 
     def register_channel_post(self, context: Any) -> None:
         """Каждый N-й пост канала будит одну из забытых кладовых."""
-        if not self.enabled or not self._total or self._scheduled_at:
+        if not self.enabled:
+            return
+
+        if not self._total:
+            self._ensure_queue_later(context)
+            return
+
+        if self._scheduled_at:
             return
 
         self._counter += 1
@@ -553,6 +581,11 @@ class ArchiveRepublisher:
             self._mark_published(post_id)
             return
 
+        if post_has_unresolved_media(post):
+            logger.info("Закрома: пост %s пропущен — медиа недоступно для скачивания.", post_id)
+            self._mark_published(post_id)
+            return
+
         caption = build_post_caption(post)
         photos, videos = collect_visual_media(post)
         audios = collect_audios(post)
@@ -566,6 +599,10 @@ class ArchiveRepublisher:
                 await self._deliver_to(context, chat_id, caption, visual_files, audio_files)
 
             logger.info("Закрома: пост %s разошёлся по каналу и беседе.", post_id)
+        except MediaUnavailableError as exc:
+            logger.warning("Закрома: пост %s пропущен — %s", post_id, exc)
+            self._mark_published(post_id)
+            return
         except Exception as exc:
             logger.exception("Запас %s не прошел в канал: (%s)", post_id, exc)
             self._queue.append(post_id)
@@ -657,14 +694,14 @@ class ArchiveRepublisher:
             if target is not None:
                 visual_files.append(target)
             else:
-                logger.warning("Видео не скачалось: %s", video.page_url)
+                raise MediaUnavailableError(f"видео не скачалось: {video.page_url}")
 
         for index, audio in enumerate(audios):
             target = self._fetch_to(output_dir / f"track_{index:02d}.mp3", audio.url or "")
             if target is not None:
                 audio_files.append(target)
             else:
-                logger.warning("Трек не скачался: %s", audio.label)
+                raise MediaUnavailableError(f"трек не скачался: {audio.label}")
 
         return visual_files, audio_files
 

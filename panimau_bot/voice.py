@@ -376,8 +376,11 @@ def render_vk_diagnostic_no_token() -> str:
     return _pick(VK_DIAGNOSTIC_NO_TOKEN_TEMPLATES)
 
 
-def render_vk_diagnostic_ok(group_name: str, group_id: int) -> str:
-    return _pick(VK_DIAGNOSTIC_OK_TEMPLATES).format(group_name=group_name, group_id=group_id)
+def render_vk_diagnostic_ok(group_name: str, group_id: int, wall_posts: int | None = None) -> str:
+    text = _pick(VK_DIAGNOSTIC_OK_TEMPLATES).format(group_name=group_name, group_id=group_id)
+    if wall_posts is not None:
+        text += f"\nВ стене постов: {wall_posts}."
+    return text
 
 
 def render_vk_diagnostic_error(error: str) -> str:

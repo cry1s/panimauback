@@ -126,27 +126,21 @@ class VkArchiveHelpersTests(unittest.TestCase):
         self.assertIn("↪ Старый Паблик:", caption)
         self.assertIn("текст репоста", caption)
 
-    def test_build_post_caption_adds_fallbacks_for_unresolved_media(self) -> None:
+    def test_build_post_caption_omits_unresolved_media_links(self) -> None:
         post = make_post(
             text="пост",
             attachments=VkAttachments(
-                videos=(
-                    VkVideoAttachment(owner_id=-77, video_id=1, title="Клип"),
-                    VkVideoAttachment(owner_id=-77, video_id=2, title="Ролик", file_url="mp4"),
-                ),
-                audios=(
-                    VkAudioAttachment(artist="Группа", title="Песня"),
-                    VkAudioAttachment(artist="Другая", title="Трек", url="mp3"),
-                ),
+                videos=(VkVideoAttachment(owner_id=-77, video_id=1, title="Клип"),),
+                audios=(VkAudioAttachment(artist="Группа", title="Песня"),),
             ),
         )
 
         caption = build_post_caption(post)
 
-        self.assertIn("🎥 Клип: https://vk.com/video-77_1", caption)
-        self.assertNotIn("Ролик", caption)
-        self.assertIn("🎵 Группа — Песня", caption)
-        self.assertNotIn("Другая", caption)
+        self.assertEqual("пост", caption)
+        self.assertNotIn("vk.com", caption)
+        self.assertNotIn("🎥", caption)
+        self.assertNotIn("🎵", caption)
 
     def test_build_post_caption_truncates_with_ellipsis(self) -> None:
         post = make_post(text="ж" * 5000)
@@ -574,6 +568,63 @@ class ArchivePublishTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(0, len(job_queue.jobs))
             self.assertEqual([5], republisher._published)
 
+    async def test_publish_scheduled_skips_on_unresolved_video(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            state = BotState(Path(temporary_dir))
+            state.write_archive_state({"queue": [5], "total": 1})
+            post = make_post(
+                post_id=5,
+                text="пост с видео",
+                attachments=VkAttachments(
+                    videos=(VkVideoAttachment(owner_id=-77, video_id=1, title="Клип"),),
+                ),
+            )
+            republisher = ArchiveRepublisher(
+                make_settings(archive_trigger_posts=1),
+                state,
+                client=StubClient(posts_by_id={5: post}),
+            )
+            bot = SimpleNamespace(send_message=AsyncMock(), send_media_group=AsyncMock())
+            job_queue = FakeJobQueue()
+            context = SimpleNamespace(bot=bot, job_queue=job_queue)
+
+            await republisher.publish_scheduled(context)
+
+            bot.send_message.assert_not_awaited()
+            bot.send_media_group.assert_not_awaited()
+            self.assertEqual([5], republisher._published)
+            self.assertEqual([], republisher._queue)
+            self.assertEqual(0, len(job_queue.jobs))
+
+    async def test_publish_scheduled_skips_on_download_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            state = BotState(Path(temporary_dir))
+            state.write_archive_state({"queue": [5], "total": 1})
+            post = make_post(
+                post_id=5,
+                text="пост с видео",
+                attachments=VkAttachments(
+                    videos=(
+                        VkVideoAttachment(owner_id=-77, video_id=1, title="Клип", file_url="http://127.0.0.1:1/x.mp4"),
+                    ),
+                ),
+            )
+            republisher = ArchiveRepublisher(
+                make_settings(archive_trigger_posts=1),
+                state,
+                client=StubClient(posts_by_id={5: post}),
+            )
+            bot = SimpleNamespace(send_message=AsyncMock(), send_media_group=AsyncMock())
+            job_queue = FakeJobQueue()
+            context = SimpleNamespace(bot=bot, job_queue=job_queue)
+
+            await republisher.publish_scheduled(context)
+
+            bot.send_message.assert_not_awaited()
+            bot.send_media_group.assert_not_awaited()
+            self.assertEqual([5], republisher._published)
+            self.assertEqual([], republisher._queue)
+
     async def test_publish_scheduled_requeues_on_failure(self) -> None:
         class BrokenClient(StubClient):
             def fetch_post(self, post_id: int) -> VkPost | None:
@@ -703,6 +754,7 @@ class VkDiagnoseTests(unittest.TestCase):
             {
                 "users.get": [[{"id": 1, "first_name": "A", "last_name": "B"}]],
                 "groups.getById": [{"groups": [{"id": 77, "name": "Панимау"}]}],
+                "wall.get": [{"count": 42, "items": []}],
             }
         )
 
@@ -711,6 +763,7 @@ class VkDiagnoseTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual("Панимау", result["group_name"])
         self.assertEqual(77, result["group_id"])
+        self.assertEqual(42, result["wall_posts"])
 
 
 class VkArchiveNowCommandTests(unittest.IsolatedAsyncioTestCase):

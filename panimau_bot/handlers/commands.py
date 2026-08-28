@@ -218,6 +218,7 @@ async def vk_diagnostic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             voice.render_vk_diagnostic_ok(
                 group_name=str(result.get("group_name", "")),
                 group_id=int(result.get("group_id") or 0),
+                wall_posts=result.get("wall_posts"),
             ),
             disable_notification=_silent_in_group(update, context),
         )
