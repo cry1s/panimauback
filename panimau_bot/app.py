@@ -26,6 +26,7 @@ from panimau_bot.handlers.commands import (
     start,
     submit_feedback,
     tell_joke,
+    vk_archive_now,
     vk_diagnostic,
 )
 from panimau_bot.handlers.social import handle_social_link
@@ -123,6 +124,7 @@ def build_application(settings: Settings | None = None) -> Application:
     application.add_handler(CommandHandler("feedback_export", export_feedback))
     application.add_handler(CommandHandler("version", show_version))
     application.add_handler(CommandHandler("112", vk_diagnostic))
+    application.add_handler(CommandHandler("27", vk_archive_now))
     application.add_handler(CommandHandler("broadcast", admin_broadcast))
     application.add_handler(
         MessageHandler(

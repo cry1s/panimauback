@@ -448,6 +448,9 @@ class ArchiveRepublisher:
     def progress(self) -> tuple[int, int]:
         return len(self._published), self._total
 
+    def has_pending(self) -> bool:
+        return bool(self._queue)
+
     # --- состояние -------------------------------------------------------
 
     def _load(self) -> None:
@@ -527,7 +530,7 @@ class ArchiveRepublisher:
 
     # --- публикация ------------------------------------------------------
 
-    async def publish_scheduled(self, context: Any) -> None:
+    async def publish_scheduled(self, context: Any, schedule_next: bool = True) -> None:
         """Тянем один пост из запасов и выкладываем целиком."""
         self._scheduled_at = None
 
@@ -571,7 +574,7 @@ class ArchiveRepublisher:
 
         self._mark_published(post_id)
 
-        if context.job_queue is not None:
+        if schedule_next and context.job_queue is not None:
             self.register_channel_post(context)
 
     def _mark_published(self, post_id: int) -> None:

@@ -371,6 +371,16 @@ class VkWallClientTests(unittest.TestCase):
 
 
 class ArchiveRepublisherTests(unittest.TestCase):
+    def test_has_pending_reflects_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            state = BotState(Path(temporary_dir))
+            empty = ArchiveRepublisher(make_settings(), state, client=StubClient())
+            self.assertFalse(empty.has_pending())
+
+            state.write_archive_state({"queue": [1], "total": 1})
+            loaded = ArchiveRepublisher(make_settings(), state, client=StubClient())
+            self.assertTrue(loaded.has_pending())
+
     def test_state_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_dir:
             state = BotState(Path(temporary_dir))
@@ -487,6 +497,25 @@ class ArchivePublishTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual([5], republisher._published)
             self.assertEqual((1, 2), republisher.progress)
             self.assertEqual(1, len(job_queue.jobs))
+
+    async def test_publish_scheduled_manual_skips_reschedule(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            state = BotState(Path(temporary_dir))
+            state.write_archive_state({"queue": [5], "total": 1})
+            post = make_post(post_id=5, text="ручной пост")
+            republisher = ArchiveRepublisher(
+                make_settings(archive_trigger_posts=1),
+                state,
+                client=StubClient(posts_by_id={5: post}),
+            )
+            bot = SimpleNamespace(send_message=AsyncMock())
+            job_queue = FakeJobQueue()
+            context = SimpleNamespace(bot=bot, job_queue=job_queue)
+
+            await republisher.publish_scheduled(context, schedule_next=False)
+
+            self.assertEqual(0, len(job_queue.jobs))
+            self.assertEqual([5], republisher._published)
 
     async def test_publish_scheduled_requeues_on_failure(self) -> None:
         class BrokenClient(StubClient):
@@ -625,6 +654,86 @@ class VkDiagnoseTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual("Панимау", result["group_name"])
         self.assertEqual(77, result["group_id"])
+
+
+class VkArchiveNowCommandTests(unittest.IsolatedAsyncioTestCase):
+    def _make_services(self, archive: object, admin_ids: tuple[int, ...] = (1,)) -> SimpleNamespace:
+        settings = SimpleNamespace(admin_ids=admin_ids, group_id=-100, vk_service_token="token")
+        return SimpleNamespace(archive=archive, settings=settings)
+
+    async def _build_context(self, services: object, job_queue: object = None) -> SimpleNamespace:
+        return SimpleNamespace(
+            application=SimpleNamespace(bot_data={"services": services}),
+            bot=SimpleNamespace(send_message=AsyncMock(), send_media_group=AsyncMock()),
+            job_queue=job_queue or FakeJobQueue(),
+        )
+
+    async def test_requires_private_chat(self) -> None:
+        from telegram.constants import ChatType
+
+        from panimau_bot.handlers.commands import vk_archive_now
+
+        services = self._make_services(None)
+        message = SimpleNamespace(reply_text=AsyncMock())
+        update = SimpleNamespace(
+            effective_chat=SimpleNamespace(type=ChatType.GROUP, id=-100),
+            effective_user=SimpleNamespace(id=1),
+            message=message,
+        )
+
+        await vk_archive_now(update, await self._build_context(services))
+
+        message.reply_text.assert_awaited()
+        self.assertIn("лич", str(message.reply_text.await_args))
+
+    async def test_requires_admin(self) -> None:
+        from telegram.constants import ChatType
+
+        from panimau_bot.handlers.commands import vk_archive_now
+
+        services = self._make_services(None, admin_ids=(7,))
+        message = SimpleNamespace(reply_text=AsyncMock())
+        update = SimpleNamespace(
+            effective_chat=SimpleNamespace(type=ChatType.PRIVATE, id=-100),
+            effective_user=SimpleNamespace(id=999),
+            message=message,
+        )
+
+        await vk_archive_now(update, await self._build_context(services))
+
+        message.reply_text.assert_awaited()
+        self.assertIn("контракт", str(message.reply_text.await_args))
+
+    async def test_publishes_immediately_without_rescheduling(self) -> None:
+        from telegram.constants import ChatType
+
+        from panimau_bot.handlers.commands import vk_archive_now
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            state = BotState(Path(temporary_dir))
+            state.write_archive_state({"queue": [5], "total": 1})
+            post = make_post(post_id=5, text="секретный пост")
+            archive = ArchiveRepublisher(
+                make_settings(archive_trigger_posts=1),
+                state,
+                client=StubClient(posts_by_id={5: post}),
+            )
+            services = self._make_services(archive)
+            job_queue = FakeJobQueue()
+            message = SimpleNamespace(reply_text=AsyncMock())
+            update = SimpleNamespace(
+                effective_chat=SimpleNamespace(type=ChatType.PRIVATE, id=-100),
+                effective_user=SimpleNamespace(id=1),
+                message=message,
+            )
+
+            await vk_archive_now(update, await self._build_context(services, job_queue))
+
+            message.reply_text.assert_awaited()
+            self.assertIn("Разобрано", str(message.reply_text.await_args))
+            self.assertEqual([], archive._queue)
+            self.assertEqual([5], archive._published)
+            self.assertEqual(0, len(job_queue.jobs))
 
 
 if __name__ == "__main__":

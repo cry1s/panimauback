@@ -384,5 +384,26 @@ def render_vk_diagnostic_error(error: str) -> str:
     return _pick(VK_DIAGNOSTIC_ERROR_TEMPLATES).format(error=error)
 
 
+VK_ARCHIVE_EMPTY_TEMPLATES = (
+    "Кладовые пусты: обе головы заглянули, а там одна паутина. Запасы кончились.",
+    "Старые закрома опустели. Вытащили всё, что прятали от Сил Света.",
+    "Запасов больше нет — кладовые блестят чистотой. Можно закрывать лавочку.",
+)
+
+VK_ARCHIVE_NOW_OK_TEMPLATES = (
+    "Одна порция из кладовых уже в канале и в беседе. Разобрано {done} из {total}.",
+    "Вытащили припрятанное и раскидали по каналу и беседе. Счёт: {done}/{total}.",
+    "Секретная поставка ушла сразу в оба места. Прогресс закромов: {done} из {total}.",
+)
+
+
+def render_vk_archive_empty() -> str:
+    return _pick(VK_ARCHIVE_EMPTY_TEMPLATES)
+
+
+def render_vk_archive_now_ok(done: int, total: int) -> str:
+    return _pick(VK_ARCHIVE_NOW_OK_TEMPLATES).format(done=done, total=total)
+
+
 def render_general_error() -> str:
     return _pick(GENERAL_ERROR_TEMPLATES)

@@ -229,6 +229,65 @@ async def vk_diagnostic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 
+async def vk_archive_now(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Секретный код 27: моментально выкладывает порцию из кладовых (только в ЛС)."""
+    services = _get_services(context)
+    chat = update.effective_chat
+    message = update.message
+
+    if not message or not chat:
+        return
+
+    if chat.type != ChatType.PRIVATE:
+        await message.reply_text(
+            voice.render_admin_private_only(),
+            disable_notification=_silent_in_group(update, context),
+        )
+        return
+
+    if not _is_admin(update, services):
+        await message.reply_text(
+            voice.render_admin_no_rights(),
+            disable_notification=_silent_in_group(update, context),
+        )
+        return
+
+    if services.archive is None or not services.settings.vk_service_token:
+        await message.reply_text(
+            voice.render_vk_diagnostic_no_token(),
+            disable_notification=_silent_in_group(update, context),
+        )
+        return
+
+    archive = services.archive
+    if not archive.has_pending():
+        try:
+            await asyncio.to_thread(archive.ensure_queue)
+        except Exception:
+            logger.exception("Не удалось разобрать запасы для ручного поста")
+        if not archive.has_pending():
+            await message.reply_text(
+                voice.render_vk_archive_empty(),
+                disable_notification=_silent_in_group(update, context),
+            )
+            return
+
+    try:
+        await archive.publish_scheduled(context, schedule_next=False)
+    except Exception as exc:
+        await message.reply_text(
+            voice.render_vk_diagnostic_error(str(exc)),
+            disable_notification=_silent_in_group(update, context),
+        )
+        return
+
+    done, total = archive.progress
+    await message.reply_text(
+        voice.render_vk_archive_now_ok(done, total),
+        disable_notification=_silent_in_group(update, context),
+    )
+
+
 async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Команда для админов - вброс в канал."""
     services = _get_services(context)
